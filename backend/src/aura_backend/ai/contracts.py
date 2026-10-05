@@ -6,6 +6,18 @@ from typing import Protocol
 from aura_backend.domain.models import ItemVisualFeaturesV1, SemanticEmbedding
 
 
+class AIProviderError(RuntimeError):
+    """Raised when an AI provider cannot complete a request."""
+
+
+class VisionResponseError(AIProviderError):
+    """Raised when vision output is absent or violates the feature contract."""
+
+
+class EmbeddingResponseError(AIProviderError):
+    """Raised when embedding output is absent or has an invalid vector."""
+
+
 @dataclass(frozen=True, slots=True)
 class ImageInput:
     """Validated image bytes ready for a vision provider."""

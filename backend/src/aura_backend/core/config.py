@@ -15,6 +15,14 @@ class Settings(BaseSettings):
 
     supabase_url: AnyHttpUrl = Field(validation_alias="SUPABASE_URL")
     supabase_secret_key: str = Field(validation_alias="SUPABASE_SECRET_KEY")
+    ai_base_url: AnyHttpUrl = Field(validation_alias="AURA_AI_BASE_URL")
+    ai_api_key: str = Field(validation_alias="AURA_AI_API_KEY")
+    ai_timeout_seconds: float = Field(
+        default=45.0,
+        validation_alias="AURA_AI_TIMEOUT_SECONDS",
+        gt=0,
+        le=120,
+    )
     vision_model: str = Field(
         default="gemini-3.5-flash-lite",
         validation_alias="AURA_VISION_MODEL",

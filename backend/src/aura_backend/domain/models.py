@@ -208,7 +208,7 @@ class ItemVisualFeaturesV1(DomainModel):
     item_name: Annotated[str, Field(min_length=1, max_length=120)] = Field(
         alias="itemName"
     )
-    colours: list[ColourObservation] = Field(min_length=1, max_length=8)
+    colours: list[ColourObservation] = Field(default_factory=list, max_length=8)
     patterns: list[PatternObservation] = Field(default_factory=list, max_length=5)
     materials: list[MaterialObservation] = Field(default_factory=list, max_length=5)
     textures: list[TextureObservation] = Field(default_factory=list, max_length=5)
@@ -241,6 +241,12 @@ class ItemVisualFeaturesV1(DomainModel):
 
     @model_validator(mode="after")
     def validate_colour_proportions(self) -> ItemVisualFeaturesV1:
+        if not self.quality.usable:
+            return self
+
+        if not self.colours:
+            raise ValueError("usable images require at least one colour")
+
         total_proportion = sum(colour.proportion for colour in self.colours)
         if not 0.9 <= total_proportion <= 1.1:
             raise ValueError("colour proportions must sum to approximately 1.0")
