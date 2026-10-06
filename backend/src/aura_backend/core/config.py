@@ -36,6 +36,16 @@ class Settings(BaseSettings):
         validation_alias="AURA_EMBEDDING_DIMENSIONS",
         ge=1,
     )
+    max_image_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        validation_alias="AURA_MAX_IMAGE_BYTES",
+        ge=1,
+    )
+    min_image_dimension: int = Field(
+        default=256,
+        validation_alias="AURA_MIN_IMAGE_DIMENSION",
+        ge=1,
+    )
 
 
 @lru_cache

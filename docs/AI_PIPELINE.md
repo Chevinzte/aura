@@ -326,6 +326,26 @@ features used by the explicit components.
 - Internal scores support consistent classification but must not be presented as
   objective scientific measurements.
 
+Scoring version 1 calculates components as follows:
+
+- colour compatibility uses normalized RGB distance between candidate and
+  profile colours, weighted by candidate proportion, extraction confidence, and
+  profile prominence;
+- style, pattern, material, shape, and decorative-detail compatibility use
+  exact controlled-vocabulary overlap, weighted by extraction confidence and
+  profile prominence;
+- semantic compatibility uses cosine similarity clamped to the 0.0 through 1.0
+  range;
+- candidate image quality caps each component's evidence confidence;
+- each configured component weight is multiplied by evidence confidence, then
+  the supported component weights are renormalized to sum to 1.0.
+
+Scoring version 1 treats component scores of at least 0.72 as strong matching
+evidence and scores of at most 0.35 as major differences for intentional
+contrast detection. The relevant profile diversity must be at least 0.45. A
+result is `UNCERTAIN` when fewer than two components have confidence of at least
+0.35.
+
 ### Classifications
 
 Initial configurable thresholds are:

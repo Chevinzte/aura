@@ -131,6 +131,18 @@ class MatchDimension(StrEnum):
     SEMANTIC_EMBEDDING = "semantic_embedding"
 
 
+class FeedbackCategory(StrEnum):
+    TASTE = "TASTE"
+    DECISION = "DECISION"
+
+
+class FeedbackType(StrEnum):
+    LIKE = "LIKE"
+    DISLIKE = "DISLIKE"
+    BOUGHT = "BOUGHT"
+    NOT_BOUGHT = "NOT_BOUGHT"
+
+
 Confidence = Annotated[float, Field(ge=0.0, le=1.0)]
 Proportion = Annotated[float, Field(gt=0.0, le=1.0)]
 Score = Annotated[float, Field(ge=0.0, le=1.0)]

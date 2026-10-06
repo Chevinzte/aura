@@ -306,7 +306,7 @@ Stores explicit user feedback without changing the profile automatically.
 | `match_analysis_id` | `uuid` | Required, references `match_analyses(id)` |
 | `category` | `feedback_category` | Required |
 | `feedback_type` | `feedback_type` | Required |
-| `note` | `text` | Nullable, length-limited by application |
+| `note` | `text` | Nullable, maximum 500 characters |
 | `created_at` | `timestamptz` | Required, default `now()` |
 | `updated_at` | `timestamptz` | Required, default `now()` |
 
