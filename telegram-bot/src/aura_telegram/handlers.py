@@ -94,6 +94,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             response_text = candidate_message(payload)
             context.user_data.pop(MODE_KEY, None)
     except BackendAPIError as error:
+        logger.warning(
+            "AURA backend request failed: code=%s status=%s",
+            error.code,
+            error.status_code,
+        )
         await progress.edit_text(backend_error_message(error.code))
         return
     except Exception:

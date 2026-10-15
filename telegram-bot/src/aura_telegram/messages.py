@@ -51,6 +51,20 @@ def backend_error_message(code: str) -> str:
         "CANDIDATE_PROCESSING_UNAVAILABLE": (
             "AURA could not finish that comparison right now. Please retry."
         ),
+        "VISION_ANALYSIS_FAILED": (
+            "AURA's visual analysis service could not process that photo right now. "
+            "Please retry shortly."
+        ),
+        "EMBEDDING_GENERATION_FAILED": (
+            "AURA analyzed the photo but could not finish its aesthetic representation. "
+            "Please retry shortly."
+        ),
+        "INVALID_BACKEND_RESPONSE": (
+            "AURA returned an unexpected response. Please retry shortly."
+        ),
+        "BACKEND_REQUEST_FAILED": (
+            "AURA's backend could not complete that request. Please retry shortly."
+        ),
         "PROFILE_INCOMPATIBLE": (
             "Your profile needs to be refreshed before this item can be compared. "
             "Try adding another belonging with /add."

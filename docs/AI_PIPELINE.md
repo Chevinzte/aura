@@ -375,10 +375,14 @@ A medium overall score alone does not imply intentional contrast. The analysis
 must identify the contrasting dimension and the features that make the rest of
 the item coherent with the profile.
 
-## Explanation V1
+## Explanation V2
 
 MVP explanations are deterministic templates populated only from stored match
 evidence. They do not require another generative-model call.
+
+Version 2 prioritizes concrete visual evidence over embedding terminology,
+uses category-aware wording, and requires weak-fit explanations to describe
+limited overlap rather than presenting only positive evidence.
 
 Each explanation contains:
 
@@ -523,7 +527,7 @@ vision_prompt_version=1
 embedding_schema_version=1
 profile_algorithm_version=1
 scoring_version=1
-explanation_version=1
+explanation_version=2
 ```
 
 Increment the relevant version when a change can alter persisted output or its

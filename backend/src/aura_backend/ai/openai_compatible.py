@@ -18,7 +18,18 @@ from aura_backend.ai.contracts import (
     VisionResponseError,
 )
 from aura_backend.core.config import Settings
-from aura_backend.domain.models import ItemVisualFeaturesV1, SemanticEmbedding
+from aura_backend.domain.models import (
+    AestheticSignalValue,
+    DecorativeDetailValue,
+    ImageQualityWarning,
+    ItemVisualFeaturesV1,
+    MaterialValue,
+    PatternValue,
+    SemanticEmbedding,
+    ShapeTraitValue,
+    StyleTraitValue,
+    TextureValue,
+)
 
 
 class OpenAICompatibleVisionAnalyzer(VisionAnalyzer):
@@ -81,8 +92,11 @@ class OpenAICompatibleVisionAnalyzer(VisionAnalyzer):
         content = _extract_message_content(response_data)
 
         try:
-            return ItemVisualFeaturesV1.model_validate_json(content)
-        except ValidationError as error:
+            raw_features = json.loads(content)
+            return ItemVisualFeaturesV1.model_validate(
+                _normalize_controlled_vocabularies(raw_features)
+            )
+        except (ValidationError, ValueError) as error:
             raise VisionResponseError("Vision response does not match ItemVisualFeaturesV1") from error
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -190,6 +204,9 @@ def _vision_system_instruction() -> str:
             "Return one JSON object only; do not include markdown or commentary.",
             "Analyze visual evidence only. Do not judge aesthetic compatibility.",
             "Use only the enum values defined in the schema.",
+            "shapeTraits describes geometry only. Values such as 'classic', 'minimal',",
+            "or 'romantic' belong in styleTraits, never shapeTraits.",
+            "Place every controlled-vocabulary value only in the field whose enum defines it.",
             "Use empty lists when an optional feature is not visible.",
             "For an unusable image, set quality.usable to false, use itemType.value",
             "as 'unknown', use an empty colours list, and explain the limitation",
@@ -227,3 +244,99 @@ def _extract_embedding_values(response_data: Any) -> list[float]:
     ):
         raise EmbeddingResponseError("Embedding vector must contain only numbers")
     return [float(value) for value in values]
+
+
+_CONTROLLED_FIELDS: dict[str, tuple[type, int]] = {
+    "patterns": (PatternValue, 5),
+    "materials": (MaterialValue, 5),
+    "textures": (TextureValue, 5),
+    "shapeTraits": (ShapeTraitValue, 5),
+    "decorativeDetails": (DecorativeDetailValue, 5),
+    "styleTraits": (StyleTraitValue, 6),
+    "aestheticSignals": (AestheticSignalValue, 4),
+}
+
+
+def _normalize_controlled_vocabularies(raw_features: Any) -> Any:
+    if not isinstance(raw_features, dict):
+        return raw_features
+
+    allowed_values = {
+        field: {member.value for member in enum_type}
+        for field, (enum_type, _) in _CONTROLLED_FIELDS.items()
+    }
+    normalized: dict[str, list[dict[str, Any]]] = {
+        field: [] for field in _CONTROLLED_FIELDS
+    }
+    observations = raw_features.get("observations", [])
+    if not isinstance(observations, list):
+        observations = []
+
+    for source_field in _CONTROLLED_FIELDS:
+        source_values = raw_features.get(source_field, [])
+        if not isinstance(source_values, list):
+            continue
+        for observation in source_values:
+            if not isinstance(observation, dict) or not isinstance(
+                observation.get("value"), str
+            ):
+                _preserve_unmapped_value(observations, source_field, observation)
+                continue
+            canonical_value = _canonical_enum_value(observation["value"])
+            target_field = next(
+                (
+                    field
+                    for field, values in allowed_values.items()
+                    if canonical_value in values
+                ),
+                None,
+            )
+            if target_field is None:
+                _preserve_unmapped_value(observations, source_field, canonical_value)
+                continue
+            target_values = normalized[target_field]
+            max_length = _CONTROLLED_FIELDS[target_field][1]
+            if any(value["value"] == canonical_value for value in target_values):
+                continue
+            if len(target_values) >= max_length:
+                _preserve_unmapped_value(observations, source_field, canonical_value)
+                continue
+            target_values.append({**observation, "value": canonical_value})
+
+    for field, values in normalized.items():
+        raw_features[field] = values
+
+    quality = raw_features.get("quality")
+    if isinstance(quality, dict) and isinstance(quality.get("warnings"), list):
+        allowed_warnings = {warning.value for warning in ImageQualityWarning}
+        normalized_warnings: list[str] = []
+        for warning in quality["warnings"]:
+            if not isinstance(warning, str):
+                _preserve_unmapped_value(observations, "quality.warnings", warning)
+                continue
+            canonical_warning = _canonical_enum_value(warning)
+            if canonical_warning in allowed_warnings:
+                if canonical_warning not in normalized_warnings:
+                    normalized_warnings.append(canonical_warning)
+            else:
+                _preserve_unmapped_value(
+                    observations,
+                    "quality.warnings",
+                    canonical_warning,
+                )
+        quality["warnings"] = normalized_warnings
+
+    raw_features["observations"] = observations[:5]
+    return raw_features
+
+
+def _canonical_enum_value(value: str) -> str:
+    return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _preserve_unmapped_value(observations: list[Any], field: str, value: Any) -> None:
+    if len(observations) >= 5:
+        return
+    observation = f"Unmapped {field} value: {value}"
+    if observation not in observations:
+        observations.append(observation[:240])

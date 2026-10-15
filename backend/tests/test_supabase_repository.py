@@ -21,7 +21,7 @@ from aura_backend.repositories.supabase import AuraRepository, FeaturePipelineVe
 
 
 class FakeTable:
-    def __init__(self, response_data: list[dict[str, object]]) -> None:
+    def __init__(self, response_data: object) -> None:
         self.response_data = response_data
         self.operation: str | None = None
         self.payload: dict[str, object] | None = None
@@ -65,13 +65,14 @@ class FakeSupabaseClient:
     def __init__(self) -> None:
         self.tables: dict[str, FakeTable] = {}
         self.rpc_calls: list[tuple[str, dict[str, object]]] = []
+        self.rpc_response_data: object = [{"id": str(uuid4())}]
 
     def table(self, name: str) -> FakeTable:
         return self.tables.setdefault(name, FakeTable([{"id": str(uuid4())}]))
 
     def rpc(self, name: str, params: dict[str, object]) -> FakeTable:
         self.rpc_calls.append((name, params))
-        return FakeTable([{"id": str(uuid4())}])
+        return FakeTable(self.rpc_response_data)
 
 
 def make_features() -> ItemVisualFeaturesV1:
@@ -177,6 +178,18 @@ def test_complete_feature_analysis_persists_validated_json_and_vector() -> None:
     assert params["p_analysis_id"] == str(analysis_id)
     assert params["p_features"]["itemType"]["value"] == "handbag"
     assert params["p_embedding"] == [0.3, 0.4]
+
+
+def test_lifecycle_rpc_accepts_composite_object_response() -> None:
+    client = FakeSupabaseClient()
+    analysis_id = uuid4()
+    client.rpc_response_data = {"id": str(analysis_id), "status": "PROCESSING"}
+    repository = AuraRepository(client)  # type: ignore[arg-type]
+
+    result = repository.mark_feature_analysis_processing(analysis_id)
+
+    assert result["id"] == str(analysis_id)
+    assert result["status"] == "PROCESSING"
 
 
 def test_list_profile_inputs_parses_pgvector_and_validated_features() -> None:

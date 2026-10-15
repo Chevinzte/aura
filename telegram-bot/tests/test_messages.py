@@ -16,3 +16,11 @@ def test_profile_not_ready_error_gives_actionable_guidance() -> None:
     message = backend_error_message("PROFILE_NOT_READY")
     assert "/add" in message
     assert "five" in message
+
+
+def test_pipeline_errors_have_specific_messages() -> None:
+    fallback = backend_error_message("UNKNOWN_ERROR")
+
+    assert backend_error_message("VISION_ANALYSIS_FAILED") != fallback
+    assert backend_error_message("EMBEDDING_GENERATION_FAILED") != fallback
+    assert backend_error_message("BACKEND_REQUEST_FAILED") != fallback

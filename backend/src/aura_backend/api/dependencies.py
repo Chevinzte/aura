@@ -47,6 +47,17 @@ def get_owned_item_service() -> OwnedItemService:
         builder=AestheticProfileBuilder(),
         pipeline=pipeline,
     )
+    return OwnedItemService(
+        repository=repository,
+        storage=SupabaseImageStorage(client),
+        image_validator=ImageValidator(
+            max_bytes=settings.max_image_bytes,
+            min_dimension=settings.min_image_dimension,
+        ),
+        item_analysis=item_analysis,
+        profile_service=profile_service,
+        pipeline=pipeline,
+    )
 
 
 @lru_cache
@@ -77,14 +88,3 @@ def get_candidate_item_service() -> CandidateItemService:
 def get_feedback_service() -> FeedbackService:
     """Build the feedback service used by frontend adapters."""
     return FeedbackService(AuraRepository(get_supabase_client()))
-    return OwnedItemService(
-        repository=repository,
-        storage=SupabaseImageStorage(client),
-        image_validator=ImageValidator(
-            max_bytes=settings.max_image_bytes,
-            min_dimension=settings.min_image_dimension,
-        ),
-        item_analysis=item_analysis,
-        profile_service=profile_service,
-        pipeline=pipeline,
-    )

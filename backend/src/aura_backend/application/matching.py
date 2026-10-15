@@ -56,7 +56,7 @@ class CandidateMatcher:
     """Compare candidate evidence with one immutable profile snapshot."""
 
     scoring_version = 1
-    explanation_version = 1
+    explanation_version = 2
 
     def __init__(self, config: MatchingConfigV1 | None = None) -> None:
         self._config = config or MatchingConfigV1()
@@ -112,7 +112,10 @@ class CandidateMatcher:
             components=components,
             profile=profile,
         )
-        matching_evidence, contrasting_evidence = self._evidence(components)
+        matching_evidence, contrasting_evidence = self._evidence(
+            components,
+            classification,
+        )
         explanation = self._explanation(
             classification,
             matching_evidence,
@@ -326,14 +329,31 @@ class CandidateMatcher:
     def _evidence(
         self,
         components: list[_Component],
+        classification: MatchClassification,
     ) -> tuple[list[MatchEvidence], list[MatchEvidence]]:
         matching: list[MatchEvidence] = []
         contrasting: list[MatchEvidence] = []
-        for component in sorted(components, key=lambda value: value.score, reverse=True):
+        ordered_components = sorted(
+            components,
+            key=lambda value: (
+                value.dimension == MatchDimension.SEMANTIC_EMBEDDING,
+                -value.score,
+            ),
+        )
+        for component in ordered_components:
             if component.score >= 0.60 and component.matching_values:
                 matching.append(self._make_evidence(component, contrast=False))
             if component.score <= 0.35 and component.contrasting_values:
                 contrasting.append(self._make_evidence(component, contrast=True))
+        if classification == MatchClassification.WEAK_FIT and not contrasting:
+            principal_components = [
+                component
+                for component in components
+                if component.dimension != MatchDimension.SEMANTIC_EMBEDDING
+            ]
+            if principal_components:
+                weakest = min(principal_components, key=lambda value: value.score)
+                contrasting.append(self._make_limited_evidence(weakest))
         return matching[:2], contrasting[:1]
 
     def _make_evidence(self, component: _Component, *, contrast: bool) -> MatchEvidence:
@@ -341,29 +361,60 @@ class CandidateMatcher:
             component.contrasting_values if contrast else component.matching_values
         )[:2]
         profile_values = component.profile_values[:2]
-        candidate_text = self._display(candidate_values[0])
-        profile_text = self._display(profile_values[0])
-        dimension_text = {
-            MatchDimension.COLOUR: "palette",
-            MatchDimension.STYLE: "style traits",
-            MatchDimension.PATTERN_MATERIAL: "patterns and materials",
-            MatchDimension.SHAPE_DETAIL: "shape and details",
-            MatchDimension.SEMANTIC_EMBEDDING: "overall feature mix",
-        }[component.dimension]
-        if contrast:
-            statement = (
-                f"Its {candidate_text} {dimension_text} differs from the "
-                f"{profile_text} seen across your belongings."
-            )
+        candidate_text = self._natural_list(
+            [self._display(value) for value in candidate_values]
+        )
+        if component.dimension == MatchDimension.SEMANTIC_EMBEDDING:
+            statement = "Its overall visual character is similar to your profile."
+        elif contrast:
+            is_plural = len(candidate_values) > 1 and component.dimension != MatchDimension.COLOUR
+            dimension_text = {
+                MatchDimension.COLOUR: "palette",
+                MatchDimension.STYLE: "style traits" if is_plural else "style trait",
+                MatchDimension.PATTERN_MATERIAL: (
+                    "patterns or materials" if is_plural else "pattern or material"
+                ),
+                MatchDimension.SHAPE_DETAIL: (
+                    "shape or detail traits" if is_plural else "shape or detail trait"
+                ),
+            }[component.dimension]
+            verb = "differ" if is_plural else "differs"
+            statement = f"Its {candidate_text} {dimension_text} {verb} from your profile."
         else:
-            statement = (
-                f"Its {candidate_text} {dimension_text} aligns with the "
-                f"{profile_text} in your profile."
-            )
+            is_plural = len(candidate_values) > 1 and component.dimension != MatchDimension.COLOUR
+            dimension_text = {
+                MatchDimension.COLOUR: "palette",
+                MatchDimension.STYLE: "style traits" if is_plural else "style trait",
+                MatchDimension.PATTERN_MATERIAL: (
+                    "patterns or materials" if is_plural else "pattern or material"
+                ),
+                MatchDimension.SHAPE_DETAIL: (
+                    "shape or detail traits" if is_plural else "shape or detail trait"
+                ),
+            }[component.dimension]
+            verb = "appear" if is_plural else "appears"
+            statement = f"Its {candidate_text} {dimension_text} also {verb} in your profile."
         return MatchEvidence(
             dimension=component.dimension,
             candidate_values=candidate_values,
             profile_values=profile_values,
+            statement=statement,
+            confidence=component.confidence,
+        )
+
+    def _make_limited_evidence(self, component: _Component) -> MatchEvidence:
+        candidate_values = (component.contrasting_values or component.candidate_values)[:2]
+        dimension_text, verb = {
+            MatchDimension.COLOUR: ("palette", "has"),
+            MatchDimension.STYLE: ("style traits", "have"),
+            MatchDimension.PATTERN_MATERIAL: ("patterns and materials", "have"),
+            MatchDimension.SHAPE_DETAIL: ("shape and detail traits", "have"),
+        }[component.dimension]
+        statement = f"Its {dimension_text} {verb} limited overlap with your profile."
+        return MatchEvidence(
+            dimension=component.dimension,
+            candidate_values=candidate_values,
+            profile_values=component.profile_values[:2],
             statement=statement,
             confidence=component.confidence,
         )
@@ -381,15 +432,23 @@ class CandidateMatcher:
             MatchClassification.WEAK_FIT: "Weak Fit",
             MatchClassification.UNCERTAIN: "Uncertain",
         }
+        qualifier = "Based on your uploaded items, this is subjective guidance rather than a rule."
         if classification == MatchClassification.UNCERTAIN:
             return (
                 "Uncertain. Based on your uploaded items, there is not enough "
                 "confident visual evidence for a reliable comparison."
             )
+        if classification == MatchClassification.WEAK_FIT:
+            statements = [evidence.statement for evidence in contrasting[:1]]
+            statements.extend(evidence.statement for evidence in matching[:1])
+            detail = " ".join(statements)
+            return (
+                f"Weak Fit. {detail} Overall, the similarities are limited across "
+                f"the item as a whole. {qualifier}"
+            ).strip()
         statements = [evidence.statement for evidence in matching[:2]]
         statements.extend(evidence.statement for evidence in contrasting[:1])
         detail = " ".join(statements)
-        qualifier = "Based on your uploaded items, this is subjective guidance rather than a rule."
         return f"{labels[classification]}. {detail} {qualifier}".strip()
 
     def _ensure_compatible_embeddings(
@@ -439,4 +498,6 @@ class CandidateMatcher:
     def _natural_list(self, values: list[str]) -> str:
         if len(values) == 1:
             return values[0]
+        if len(values) == 2:
+            return f"{values[0]} and {values[1]}"
         return ", ".join(values[:-1]) + f", and {values[-1]}"

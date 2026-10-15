@@ -58,5 +58,6 @@ def run() -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         level=logging.INFO,
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     application = build_application(get_bot_settings())
     application.run_polling(allowed_updates=Update.ALL_TYPES)

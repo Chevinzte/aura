@@ -430,6 +430,8 @@ class AuraRepository:
 
 
 def _require_single_row(rows: Any, operation: str) -> dict[str, Any]:
+    if isinstance(rows, dict):
+        return rows
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         raise RepositoryError(f"Expected one row while {operation}")
     return rows[0]

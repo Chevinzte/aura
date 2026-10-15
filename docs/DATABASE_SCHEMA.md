@@ -260,7 +260,7 @@ profile snapshot.
 | `status` | `analysis_status` | Required, default `PENDING` |
 | `overall_score` | `double precision` | Nullable, from 0.0 to 1.0 |
 | `classification` | `match_classification` | Nullable until completed |
-| `component_scores` | `jsonb` | Nullable object until completed |
+| `component_scores` | `jsonb` | Nullable array until completed |
 | `matching_evidence` | `jsonb` | Nullable array until completed |
 | `contrasting_evidence` | `jsonb` | Nullable array until completed |
 | `explanation` | `text` | Nullable until completed |

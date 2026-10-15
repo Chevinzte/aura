@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from aura_backend.application.matching import CandidateMatcher
+from aura_backend.application.matching import CandidateMatcher, MatchingConfigV1
 from aura_backend.domain.models import (
     AestheticProfileV1,
     ColourObservation,
@@ -13,6 +13,7 @@ from aura_backend.domain.models import (
     SemanticEmbedding,
     ShapeTraitObservation,
     StyleTraitObservation,
+    WeightedFeature,
 )
 
 
@@ -87,6 +88,8 @@ def test_matching_candidate_is_classified_as_strong_fit() -> None:
     assert result.overall_score >= 0.78
     assert len(result.matching_evidence) == 2
     assert "subjective guidance" in result.explanation
+    assert "feature representation" not in result.explanation
+    assert result.explanation_version == 2
 
 
 def test_single_colour_difference_can_be_intentional_contrast() -> None:
@@ -119,3 +122,71 @@ def test_multiple_differences_are_not_intentional_contrast() -> None:
     )
 
     assert result.classification == "WEAK_FIT"
+    assert "differs from your profile" in result.explanation
+    assert "Overall, the similarities are limited" in result.explanation
+
+
+def test_weak_fit_without_major_contrast_explains_limited_overlap() -> None:
+    candidate = make_candidate(colour="muted mauve", hex_value="#9A7B8F").model_copy(
+        update={
+            "style_traits": [
+                StyleTraitObservation(value="romantic", confidence=0.9),
+                StyleTraitObservation(value="sporty", confidence=0.9),
+            ],
+            "patterns": [
+                PatternObservation(value="floral", confidence=0.9),
+                PatternObservation(value="graphic", confidence=0.9),
+            ],
+            "materials": [
+                MaterialObservation(value="leather", confidence=0.9),
+                MaterialObservation(value="plastic", confidence=0.9),
+            ],
+        }
+    )
+    matcher = CandidateMatcher(
+        MatchingConfigV1(strong_fit_threshold=0.95, moderate_fit_threshold=0.9)
+    )
+
+    result = matcher.compare(
+        candidate_item_id=uuid4(),
+        profile_id=uuid4(),
+        candidate_features=candidate,
+        candidate_embedding=make_embedding([0.7, 0.714]),
+        profile=make_profile(),
+    )
+
+    assert result.classification == "WEAK_FIT"
+    assert "limited overlap" in result.explanation
+
+
+def test_matching_evidence_names_the_shared_value_not_an_unrelated_profile_value() -> None:
+    profile = make_profile().model_copy(
+        update={
+            "shape_traits": [
+                WeightedFeature(value="structured", weight=0.6),
+                WeightedFeature(value="elongated", weight=0.4),
+            ]
+        }
+    )
+    candidate = make_candidate().model_copy(
+        update={
+            "patterns": [],
+            "materials": [],
+            "style_traits": [],
+            "shape_traits": [ShapeTraitObservation(value="elongated", confidence=0.9)],
+        }
+    )
+
+    result = CandidateMatcher().compare(
+        candidate_item_id=uuid4(),
+        profile_id=uuid4(),
+        candidate_features=candidate,
+        candidate_embedding=make_embedding([1.0, 0.0]),
+        profile=profile,
+    )
+
+    shape_evidence = next(
+        evidence for evidence in result.matching_evidence if evidence.dimension == "shape_detail"
+    )
+    assert "elongated" in shape_evidence.statement
+    assert "structured" not in shape_evidence.statement
