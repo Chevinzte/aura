@@ -89,7 +89,13 @@ def test_matching_candidate_is_classified_as_strong_fit() -> None:
     assert len(result.matching_evidence) == 2
     assert "subjective guidance" in result.explanation
     assert "feature representation" not in result.explanation
-    assert result.explanation_version == 2
+    assert result.explanation_version == 3
+    sections = result.explanation.split("\n\n")
+    assert len(sections) == 4
+    assert sections[0] == "Classification: Strong Fit"
+    assert sections[1].startswith("Matching Evidence: ")
+    assert sections[2].startswith("Contrasting Evidence: ")
+    assert sections[3].startswith("Subjective Qualifier: ")
 
 
 def test_single_colour_difference_can_be_intentional_contrast() -> None:

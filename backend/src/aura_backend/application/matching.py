@@ -56,7 +56,7 @@ class CandidateMatcher:
     """Compare candidate evidence with one immutable profile snapshot."""
 
     scoring_version = 1
-    explanation_version = 2
+    explanation_version = 3
 
     def __init__(self, config: MatchingConfigV1 | None = None) -> None:
         self._config = config or MatchingConfigV1()
@@ -434,22 +434,29 @@ class CandidateMatcher:
         }
         qualifier = "Based on your uploaded items, this is subjective guidance rather than a rule."
         if classification == MatchClassification.UNCERTAIN:
-            return (
-                "Uncertain. Based on your uploaded items, there is not enough "
-                "confident visual evidence for a reliable comparison."
-            )
-        if classification == MatchClassification.WEAK_FIT:
-            statements = [evidence.statement for evidence in contrasting[:1]]
-            statements.extend(evidence.statement for evidence in matching[:1])
-            detail = " ".join(statements)
-            return (
-                f"Weak Fit. {detail} Overall, the similarities are limited across "
-                f"the item as a whole. {qualifier}"
-            ).strip()
-        statements = [evidence.statement for evidence in matching[:2]]
-        statements.extend(evidence.statement for evidence in contrasting[:1])
-        detail = " ".join(statements)
-        return f"{labels[classification]}. {detail} {qualifier}".strip()
+            matching_text = "There is not enough confident evidence to identify a reliable match."
+            contrasting_text = "There is not enough confident evidence to identify a reliable contrast."
+        else:
+            matching_text = " ".join(
+                evidence.statement for evidence in matching[:2]
+            ) or "No strong matching evidence was identified."
+            contrasting_text = " ".join(
+                evidence.statement for evidence in contrasting[:1]
+            ) or "No major contrasting feature was identified."
+            if classification == MatchClassification.WEAK_FIT:
+                contrasting_text = (
+                    f"{contrasting_text} Overall, the similarities are limited "
+                    "across the item as a whole."
+                )
+
+        return "\n\n".join(
+            [
+                f"Classification: {labels[classification]}",
+                f"Matching Evidence: {matching_text}",
+                f"Contrasting Evidence: {contrasting_text}",
+                f"Subjective Qualifier: {qualifier}",
+            ]
+        )
 
     def _ensure_compatible_embeddings(
         self,

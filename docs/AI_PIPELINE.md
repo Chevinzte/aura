@@ -375,7 +375,7 @@ A medium overall score alone does not imply intentional contrast. The analysis
 must identify the contrasting dimension and the features that make the rest of
 the item coherent with the profile.
 
-## Explanation V2
+## Explanation V3
 
 MVP explanations are deterministic templates populated only from stored match
 evidence. They do not require another generative-model call.
@@ -383,6 +383,10 @@ evidence. They do not require another generative-model call.
 Version 2 prioritizes concrete visual evidence over embedding terminology,
 uses category-aware wording, and requires weak-fit explanations to describe
 limited overlap rather than presenting only positive evidence.
+
+Version 3 presents every explanation as four labeled sections separated by
+blank lines: Classification, Matching Evidence, Contrasting Evidence, and
+Subjective Qualifier.
 
 Each explanation contains:
 
@@ -393,9 +397,15 @@ Each explanation contains:
 
 Example:
 
-> **Moderate Fit.** The cream details and delicate shape align with many of your
-> belongings. The navy base is much darker than your usual palette, so it may
-> work better as a deliberate contrast than as a seamless match.
+```text
+Classification: Moderate Fit
+
+Matching Evidence: Its cream palette and delicate style trait also appear in your profile.
+
+Contrasting Evidence: Its navy palette differs from your profile.
+
+Subjective Qualifier: Based on your uploaded items, this is subjective guidance rather than a rule.
+```
 
 Explanations must:
 
@@ -527,7 +537,7 @@ vision_prompt_version=1
 embedding_schema_version=1
 profile_algorithm_version=1
 scoring_version=1
-explanation_version=2
+explanation_version=3
 ```
 
 Increment the relevant version when a change can alter persisted output or its
