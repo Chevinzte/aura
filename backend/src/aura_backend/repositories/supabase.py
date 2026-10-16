@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -331,7 +332,7 @@ class AuraRepository:
 
         response = (
             self._client.table("aesthetic_profiles")
-            .select("id,profile_data")
+            .select("id,profile_data,created_at")
             .eq("user_id", str(user_id))
             .eq("is_active", "true")
             .eq("profile_algorithm_version", 1)
@@ -351,6 +352,7 @@ class AuraRepository:
         return ActiveProfile(
             profile_id=UUID(str(row["id"])),
             profile=AestheticProfileV1.model_validate(row["profile_data"]),
+            created_at=_parse_datetime(row.get("created_at")),
         )
 
     def save_match_analysis(
@@ -458,3 +460,16 @@ def _parse_vector(value: Any) -> list[float]:
     ):
         raise RepositoryError("Malformed embedding vector")
     return [float(component) for component in value]
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        raise RepositoryError("Malformed timestamp")
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise RepositoryError("Malformed timestamp") from error

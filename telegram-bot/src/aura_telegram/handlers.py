@@ -9,7 +9,12 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMa
 from telegram.ext import ContextTypes
 
 from aura_telegram.backend import AuraBackendClient, BackendAPIError
-from aura_telegram.messages import backend_error_message, candidate_message, owned_item_message
+from aura_telegram.messages import (
+    backend_error_message,
+    candidate_message,
+    owned_item_message,
+    profile_message,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -26,14 +31,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_message is None:
         return
     keyboard = ReplyKeyboardMarkup(
-        [["/add", "/check"], ["/done"]],
+        [["/add", "/check"], ["/profile", "/done"]],
         resize_keyboard=True,
     )
     await update.effective_message.reply_text(
         "Welcome to AURA. I learn your visual preferences from belongings you like, "
         "then explain how a new item may fit or contrast with them.\n\n"
         "Use /add to upload 5–10 belongings you like. Use /check when your profile "
-        "is ready and you want to evaluate another item.",
+        "is ready and you want to evaluate another item. Use /profile to see what "
+        "AURA has learned.",
         reply_markup=keyboard,
     )
 
@@ -61,6 +67,30 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
             "Upload mode closed. Use /add for more belongings or /check for a comparison."
         )
+
+
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+    display_name = user.first_name or user.username or None
+    try:
+        payload = await _backend_client(context).get_profile(
+            telegram_user_id=user.id,
+            display_name=display_name,
+        )
+    except BackendAPIError as error:
+        logger.warning(
+            "AURA backend request failed: code=%s status=%s",
+            error.code,
+            error.status_code,
+        )
+        await message.reply_text(backend_error_message(error.code))
+        return
+    if not payload.get("display_name"):
+        payload["display_name"] = display_name or "there"
+    await message.reply_text(profile_message(payload))
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

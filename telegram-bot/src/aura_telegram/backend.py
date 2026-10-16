@@ -85,6 +85,18 @@ class AuraBackendClient:
             json={"feedback_type": feedback_type},
         )
 
+    async def get_profile(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v1/profile",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
     async def _upload_item(
         self,
         *,

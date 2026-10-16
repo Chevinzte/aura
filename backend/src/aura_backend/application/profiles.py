@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from math import log, sqrt
-from typing import Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 
+from aura_backend.application.matching import ActiveProfile
 from aura_backend.domain.models import (
     AestheticProfileV1,
     ItemVisualFeaturesV1,
@@ -45,6 +47,29 @@ class ProfileRebuildResult:
     profile: AestheticProfileV1 | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ProfileDisplay:
+    colours: list[str]
+    style_traits: list[str]
+    patterns: list[str]
+    materials: list[str]
+    textures: list[str]
+    shape_traits: list[str]
+    decorative_details: list[str]
+    style_influences: list[str]
+    summary: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileReadResult:
+    status: Literal["COLLECTING", "READY", "UNAVAILABLE"]
+    display_name: str | None
+    usable_item_count: int
+    minimum_item_count: int
+    profile: ProfileDisplay | None = None
+    generated_at: datetime | None = None
+
+
 class ProfileRepository(Protocol):
     def list_profile_inputs(
         self, *, user_id: UUID, pipeline: FeaturePipelineVersion
@@ -58,6 +83,20 @@ class ProfileRepository(Protocol):
         effective_weights: dict[UUID, float],
         pipeline: FeaturePipelineVersion,
     ) -> object: ...
+
+
+class ProfileReadRepository(Protocol):
+    def find_or_create_user(
+        self, telegram_user_id: int, display_name: str | None
+    ) -> dict[str, Any]: ...
+
+    def list_profile_inputs(
+        self, *, user_id: UUID, pipeline: FeaturePipelineVersion
+    ) -> list[ProfileInput]: ...
+
+    def get_active_profile(
+        self, *, user_id: UUID, pipeline: FeaturePipelineVersion
+    ) -> ActiveProfile | None: ...
 
 
 class AestheticProfileBuilder:
@@ -348,3 +387,89 @@ class ProfileService:
             profile_id=profile_id,
             profile=built.profile,
         )
+
+
+class ProfileReadService:
+    """Return a display-safe view of the user's current aesthetic profile."""
+
+    def __init__(
+        self,
+        *,
+        repository: ProfileReadRepository,
+        pipeline: FeaturePipelineVersion,
+        minimum_items: int = AestheticProfileBuilder.minimum_items,
+    ) -> None:
+        self._repository = repository
+        self._pipeline = pipeline
+        self._minimum_items = minimum_items
+
+    def get(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+    ) -> ProfileReadResult:
+        try:
+            user = self._repository.find_or_create_user(telegram_user_id, display_name)
+            user_id = UUID(str(user["id"]))
+            inputs = self._repository.list_profile_inputs(
+                user_id=user_id,
+                pipeline=self._pipeline,
+            )
+            active_profile = self._repository.get_active_profile(
+                user_id=user_id,
+                pipeline=self._pipeline,
+            )
+        except Exception as error:
+            raise ProfilePersistenceError("Could not load aesthetic profile") from error
+
+        resolved_name = self._clean_name(user.get("display_name")) or self._clean_name(
+            display_name
+        )
+        item_count = len(inputs)
+        if active_profile is None:
+            status: Literal["COLLECTING", "UNAVAILABLE"] = (
+                "COLLECTING" if item_count < self._minimum_items else "UNAVAILABLE"
+            )
+            return ProfileReadResult(
+                status=status,
+                display_name=resolved_name,
+                usable_item_count=item_count,
+                minimum_item_count=self._minimum_items,
+            )
+
+        profile = active_profile.profile
+        return ProfileReadResult(
+            status="READY",
+            display_name=resolved_name,
+            usable_item_count=item_count,
+            minimum_item_count=self._minimum_items,
+            profile=ProfileDisplay(
+                colours=self._top_values(profile.colours, "name"),
+                style_traits=self._top_values(profile.style_traits),
+                patterns=self._top_values(profile.patterns),
+                materials=self._top_values(profile.materials),
+                textures=self._top_values(profile.textures),
+                shape_traits=self._top_values(profile.shape_traits),
+                decorative_details=self._top_values(profile.decorative_details),
+                style_influences=self._top_values(profile.aesthetic_signals),
+                summary=profile.summary,
+            ),
+            generated_at=active_profile.created_at,
+        )
+
+    def _top_values(
+        self,
+        values: list[WeightedColour] | list[WeightedFeature],
+        field_name: str = "value",
+    ) -> list[str]:
+        return [
+            str(getattr(value, field_name)).replace("_", " ")
+            for value in values[:3]
+        ]
+
+    def _clean_name(self, value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip()
+        return cleaned or None

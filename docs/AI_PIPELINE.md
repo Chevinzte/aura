@@ -503,6 +503,12 @@ FastAPI routes remain thin. Telegram uploads images, requests operations, and
 displays results through the backend API; it contains no prompts, profile logic,
 matching logic, or provider-specific code.
 
+The profile-read contract exposes only display-safe profile information:
+collection progress, the user's display name, leading visual preferences, the
+generated summary, and the profile generation time. It must not expose feature
+weights, embeddings, internal identifiers, or model metadata. Frontends may
+format these fields but must not independently derive profile rankings.
+
 ## Evaluation Plan
 
 Before declaring the MVP ready, create a private evaluation set of approximately

@@ -1,4 +1,9 @@
-from aura_telegram.messages import backend_error_message, candidate_message, owned_item_message
+from aura_telegram.messages import (
+    backend_error_message,
+    candidate_message,
+    owned_item_message,
+    profile_message,
+)
 
 
 def test_owned_item_messages_follow_profile_status() -> None:
@@ -24,3 +29,48 @@ def test_pipeline_errors_have_specific_messages() -> None:
     assert backend_error_message("VISION_ANALYSIS_FAILED") != fallback
     assert backend_error_message("EMBEDDING_GENERATION_FAILED") != fallback
     assert backend_error_message("BACKEND_REQUEST_FAILED") != fallback
+
+
+def test_profile_message_formats_ready_profile_with_headers() -> None:
+    message = profile_message(
+        {
+            "status": "READY",
+            "display_name": "Vinz",
+            "usable_item_count": 6,
+            "minimum_item_count": 5,
+            "profile": {
+                "colours": ["cream", "black"],
+                "style_traits": ["minimal", "casual"],
+                "patterns": ["plain"],
+                "materials": ["cotton"],
+                "textures": [],
+                "shape_traits": ["clean lined"],
+                "decorative_details": ["minimal detail"],
+                "style_influences": ["quiet luxury"],
+                "summary": "Your uploaded belongings suggest a minimal profile.",
+            },
+        }
+    )
+
+    assert message.startswith("Hello Vinz, this is your style profile")
+    assert "\n\nColours: Cream, Black\n\n" in message
+    assert "Style Traits: Minimal, Casual" in message
+    assert "Patterns & Materials: Plain, Cotton" in message
+    assert "Shape & Details: Clean Lined, Minimal Detail" in message
+    assert "Style Influences: Quiet Luxury" in message
+    assert "Style Summary:" in message
+
+
+def test_profile_message_reports_collecting_progress() -> None:
+    message = profile_message(
+        {
+            "status": "COLLECTING",
+            "display_name": "Vinz",
+            "usable_item_count": 3,
+            "minimum_item_count": 5,
+        }
+    )
+
+    assert "Hello Vinz" in message
+    assert "Progress: 3/5 usable items" in message
+    assert "/add" in message

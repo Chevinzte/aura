@@ -22,6 +22,7 @@ from aura_telegram.handlers import (
     handle_error,
     handle_feedback,
     handle_photo,
+    show_profile,
     start,
 )
 
@@ -46,6 +47,7 @@ def build_application(settings: BotSettings) -> Application:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add", add_owned))
     application.add_handler(CommandHandler("check", check_candidate))
+    application.add_handler(CommandHandler("profile", show_profile))
     application.add_handler(CommandHandler("done", done))
     application.add_handler(CallbackQueryHandler(handle_feedback, pattern=FEEDBACK_PATTERN))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))

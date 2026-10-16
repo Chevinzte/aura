@@ -32,6 +32,91 @@ def candidate_message(payload: dict[str, Any]) -> str:
     return f"{classification}. Based on your uploaded belongings, this result is subjective guidance."
 
 
+def profile_message(payload: dict[str, Any]) -> str:
+    name = payload.get("display_name")
+    greeting_name = name.strip() if isinstance(name, str) and name.strip() else "there"
+    status = payload.get("status")
+    item_count = payload.get("usable_item_count", 0)
+    minimum_items = payload.get("minimum_item_count", 5)
+
+    if status == "COLLECTING":
+        return (
+            f"Hello {greeting_name}, your style profile is still learning.\n\n"
+            f"Progress: {item_count}/{minimum_items} usable items\n\n"
+            "Use /add to upload more belongings you genuinely like."
+        )
+    if status == "UNAVAILABLE":
+        return (
+            f"Hello {greeting_name}, AURA has enough items but your style profile "
+            "is not available right now. Add another item with /add to retry the refresh."
+        )
+
+    profile = payload.get("profile")
+    if status != "READY" or not isinstance(profile, dict):
+        return (
+            "Your style profile could not be displayed right now. "
+            "Please try again shortly."
+        )
+
+    sections = [f"Hello {greeting_name}, this is your style profile"]
+    _append_profile_section(sections, "Colours", profile.get("colours"))
+    _append_profile_section(sections, "Style Traits", profile.get("style_traits"))
+    _append_profile_section(
+        sections,
+        "Patterns & Materials",
+        _combined_values(
+            profile.get("patterns"),
+            profile.get("materials"),
+            profile.get("textures"),
+        ),
+    )
+    _append_profile_section(
+        sections,
+        "Shape & Details",
+        _combined_values(
+            profile.get("shape_traits"),
+            profile.get("decorative_details"),
+        ),
+    )
+    _append_profile_section(
+        sections,
+        "Style Influences",
+        profile.get("style_influences"),
+    )
+    summary = profile.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        sections.append(f"Style Summary: {summary.strip()}")
+    sections.append(
+        "This profile reflects your uploaded belongings and may evolve as you add more."
+    )
+    return "\n\n".join(sections)
+
+
+def _append_profile_section(sections: list[str], label: str, values: object) -> None:
+    formatted = _display_values(values)
+    if formatted:
+        sections.append(f"{label}: {', '.join(formatted)}")
+
+
+def _combined_values(*groups: object) -> list[str]:
+    values: list[str] = []
+    for group in groups:
+        for value in _display_values(group):
+            if value not in values:
+                values.append(value)
+    return values
+
+
+def _display_values(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [
+        value.replace("_", " ").strip().title()
+        for value in values
+        if isinstance(value, str) and value.strip()
+    ]
+
+
 def backend_error_message(code: str) -> str:
     messages = {
         "PROFILE_NOT_READY": (
@@ -68,6 +153,9 @@ def backend_error_message(code: str) -> str:
         "PROFILE_INCOMPATIBLE": (
             "Your profile needs to be refreshed before this item can be compared. "
             "Try adding another belonging with /add."
+        ),
+        "PROFILE_READ_UNAVAILABLE": (
+            "AURA could not load your style profile right now. Please try /profile again shortly."
         ),
     }
     return messages.get(code, "Something went wrong while contacting AURA. Please try again.")

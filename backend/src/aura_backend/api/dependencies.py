@@ -9,7 +9,11 @@ from aura_backend.application.candidate_items import CandidateItemService
 from aura_backend.application.feedback import FeedbackService
 from aura_backend.application.matching import CandidateMatcher
 from aura_backend.application.owned_items import OwnedItemService
-from aura_backend.application.profiles import AestheticProfileBuilder, ProfileService
+from aura_backend.application.profiles import (
+    AestheticProfileBuilder,
+    ProfileReadService,
+    ProfileService,
+)
 from aura_backend.core.config import get_settings
 from aura_backend.core.supabase import get_supabase_client
 from aura_backend.media.images import ImageValidator
@@ -88,3 +92,13 @@ def get_candidate_item_service() -> CandidateItemService:
 def get_feedback_service() -> FeedbackService:
     """Build the feedback service used by frontend adapters."""
     return FeedbackService(AuraRepository(get_supabase_client()))
+
+
+@lru_cache
+def get_profile_read_service() -> ProfileReadService:
+    """Build the service that exposes a safe profile summary to frontends."""
+    settings = get_settings()
+    return ProfileReadService(
+        repository=AuraRepository(get_supabase_client()),
+        pipeline=_pipeline(settings),
+    )

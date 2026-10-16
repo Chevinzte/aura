@@ -60,6 +60,25 @@ def test_feedback_uses_match_endpoint_and_stable_type() -> None:
     assert result["feedback_type"] == "LIKE"
 
 
+def test_profile_request_sends_identity_headers() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/v1/profile"
+        assert request.headers["X-Telegram-User-Id"] == "123"
+        assert request.headers["X-Telegram-Display-Name"] == "Vinz"
+        return httpx.Response(200, json={"status": "COLLECTING"})
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+    )
+    result = run(client.get_profile(telegram_user_id=123, display_name="Vinz"))
+    run(client.close())
+
+    assert result["status"] == "COLLECTING"
+
+
 def test_backend_error_detail_is_preserved() -> None:
     async def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(409, json={"detail": "PROFILE_NOT_READY"})

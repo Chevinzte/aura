@@ -28,6 +28,16 @@ and explains how a candidate item may fit or contrast with that profile.
 Create `TELEGRAM_BOT_TOKEN` through Telegram's BotFather. Keep both processes
 running during local development.
 
+After completing the setup once, start or restart both services in one terminal:
+
+```powershell
+.\restart-aura.ps1
+```
+
+The script stops existing AURA processes started from these virtual environments,
+starts the backend and Telegram bot together, and stops both when you press
+`Ctrl+C`.
+
 ## Telegram Flow
 
 - `/start` displays the available actions.
@@ -35,6 +45,7 @@ running during local development.
   after at least five usable items.
 - `/check` accepts one candidate item and returns an explainable match result.
 - Inline buttons capture taste and purchase-decision feedback.
+- `/profile` shows the current style profile or progress toward the five-item minimum.
 - `/done` exits the current upload mode.
 
 The Telegram package is only a frontend adapter. It sends images and identity
