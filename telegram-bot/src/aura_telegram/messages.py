@@ -5,9 +5,12 @@ from typing import Any
 
 def owned_item_message(payload: dict[str, Any]) -> str:
     profile_status = payload.get("profile_status")
+    item_count = payload.get("usable_item_count")
+    minimum_items = payload.get("minimum_item_count", 5)
     if profile_status == "READY":
         return (
-            "Item added. Your aesthetic profile is ready and now includes this belonging.\n\n"
+            f"Item added. Your aesthetic profile is ready and now includes "
+            f"{item_count or minimum_items} belongings.\n\n"
             "Send another photo, use /done, or use /check to evaluate something new."
         )
     if profile_status == "REBUILD_FAILED":
@@ -15,9 +18,59 @@ def owned_item_message(payload: dict[str, Any]) -> str:
             "Item added, but your profile could not be refreshed right now. "
             "You can continue, and AURA will retry when another belonging is added."
         )
+    progress = (
+        f" Progress: {item_count}/{minimum_items} usable items."
+        if isinstance(item_count, int)
+        else ""
+    )
     return (
         "Item added. Keep sending belongings you genuinely like; AURA needs at least "
-        "five usable items to build your profile. Send another photo or use /done."
+        f"five usable items to build your profile.{progress} Send another photo or use /done."
+    )
+
+
+def help_message() -> str:
+    return (
+        "AURA command guide\n\n"
+        "/add — Upload a belonging you genuinely like. Clear, well-lit photos of one "
+        "item work best.\n\n"
+        "/check — Compare a new item with your current style profile.\n\n"
+        "/profile — See what AURA has learned from your uploaded belongings.\n\n"
+        "/remove — Remove one uploaded belonging from your profile.\n\n"
+        "/resetprofile — Clear all uploaded belongings and restart your profile.\n\n"
+        "/done — Exit the current photo-upload mode."
+    )
+
+
+def profile_mutation_message(payload: dict[str, Any]) -> str:
+    status = payload.get("status")
+    item_count = payload.get("usable_item_count", 0)
+    minimum_items = payload.get("minimum_item_count", 5)
+    removed_count = payload.get("removed_item_count", 0)
+
+    if removed_count > 1:
+        return (
+            f"Profile cleared. {removed_count} uploaded belongings were removed.\n\n"
+            f"Progress: 0/{minimum_items} usable items. Use /add when you are ready "
+            "to build a new profile."
+        )
+    if removed_count == 0:
+        return (
+            "Your profile was already empty. Use /add to begin building a new profile."
+        )
+    if status == "READY":
+        return (
+            f"Belonging removed. Your profile was rebuilt from the remaining "
+            f"{item_count} usable items."
+        )
+    if status == "REBUILD_FAILED":
+        return (
+            "Belonging removed, but AURA could not refresh your profile right now. "
+            "Add another belonging with /add to retry."
+        )
+    return (
+        f"Belonging removed. Your profile now has {item_count}/{minimum_items} usable "
+        "items. Use /add to make it ready again."
     )
 
 
@@ -156,6 +209,12 @@ def backend_error_message(code: str) -> str:
         ),
         "PROFILE_READ_UNAVAILABLE": (
             "AURA could not load your style profile right now. Please try /profile again shortly."
+        ),
+        "PROFILE_MANAGEMENT_UNAVAILABLE": (
+            "AURA could not update your style profile right now. Please try again shortly."
+        ),
+        "OWNED_ITEM_NOT_FOUND": (
+            "That belonging is no longer available in your profile. Use /remove to refresh the list."
         ),
     }
     return messages.get(code, "Something went wrong while contacting AURA. Please try again.")

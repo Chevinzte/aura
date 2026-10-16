@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -54,7 +55,10 @@ class FakeTable:
         self.filters.append((column, value))
         return self
 
-    def order(self, _: str) -> FakeTable:
+    def order(self, _: str, **__: object) -> FakeTable:
+        return self
+
+    def limit(self, _: int) -> FakeTable:
         return self
 
     def execute(self) -> SimpleNamespace:
@@ -319,6 +323,63 @@ def test_get_active_profile_validates_stored_profile_data() -> None:
 
     assert active.profile_id == profile_id
     assert active.profile.user_id == user_id
+
+
+def test_list_owned_profile_items_uses_caption_or_analyzed_name() -> None:
+    client = FakeSupabaseClient()
+    item_id = uuid4()
+    client.tables["items"] = FakeTable(
+        [
+            {
+                "id": str(item_id),
+                "item_name": None,
+                "created_at": "2026-10-16T04:00:00Z",
+                "item_visual_features": [
+                    {
+                        "features": make_features().model_dump(
+                            by_alias=True,
+                            mode="json",
+                        )
+                    }
+                ],
+            }
+        ]
+    )
+    repository = AuraRepository(client)  # type: ignore[arg-type]
+
+    items = repository.list_owned_profile_items(
+        user_id=uuid4(),
+        pipeline=FeaturePipelineVersion(
+            vision_provider="gateway",
+            vision_model="vision-model",
+            vision_prompt_version=1,
+            feature_schema_version=1,
+            embedding_provider="gateway",
+            embedding_model="embedding-model",
+            embedding_dimensions=2,
+            embedding_schema_version=1,
+        ),
+        limit=10,
+    )
+
+    assert items[0].item_id == item_id
+    assert items[0].label == "floral handbag"
+    assert items[0].created_at == datetime(2026, 10, 16, 4, tzinfo=UTC)
+
+
+def test_profile_management_rpcs_return_removed_items() -> None:
+    client = FakeSupabaseClient()
+    repository = AuraRepository(client)  # type: ignore[arg-type]
+    user_id = uuid4()
+    item_id = uuid4()
+    client.rpc_response_data = [{"item_id": str(item_id)}]
+
+    repository.remove_owned_item(user_id=user_id, item_id=item_id)
+    reset_count = repository.reset_owned_items(user_id=user_id)
+
+    assert reset_count == 1
+    assert client.rpc_calls[0][0] == "remove_owned_profile_item"
+    assert client.rpc_calls[1][0] == "reset_owned_profile_items"
 
 
 def test_save_match_analysis_uses_idempotent_rpc() -> None:

@@ -9,6 +9,7 @@ from aura_backend.application.candidate_items import CandidateItemService
 from aura_backend.application.feedback import FeedbackService
 from aura_backend.application.matching import CandidateMatcher
 from aura_backend.application.owned_items import OwnedItemService
+from aura_backend.application.profile_management import ProfileManagementService
 from aura_backend.application.profiles import (
     AestheticProfileBuilder,
     ProfileReadService,
@@ -101,4 +102,22 @@ def get_profile_read_service() -> ProfileReadService:
     return ProfileReadService(
         repository=AuraRepository(get_supabase_client()),
         pipeline=_pipeline(settings),
+    )
+
+
+@lru_cache
+def get_profile_management_service() -> ProfileManagementService:
+    """Build the service for confirmed owned-item removal and profile reset."""
+    settings = get_settings()
+    client = get_supabase_client()
+    repository = AuraRepository(client)
+    pipeline = _pipeline(settings)
+    return ProfileManagementService(
+        repository=repository,
+        profile_service=ProfileService(
+            repository=repository,
+            builder=AestheticProfileBuilder(),
+            pipeline=pipeline,
+        ),
+        pipeline=pipeline,
     )

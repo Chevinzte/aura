@@ -43,6 +43,7 @@ class BuiltProfile:
 @dataclass(frozen=True, slots=True)
 class ProfileRebuildResult:
     status: str
+    usable_item_count: int
     profile_id: UUID | None = None
     profile: AestheticProfileV1 | None = None
 
@@ -369,7 +370,10 @@ class ProfileService:
         except Exception as error:
             raise ProfilePersistenceError("Could not load profile inputs") from error
         if len(inputs) < self._builder.minimum_items:
-            return ProfileRebuildResult(status="COLLECTING")
+            return ProfileRebuildResult(
+                status="COLLECTING",
+                usable_item_count=len(inputs),
+            )
 
         built = self._builder.build(user_id=user_id, inputs=inputs)
         profile_id = uuid4()
@@ -384,6 +388,7 @@ class ProfileService:
             raise ProfilePersistenceError("Could not activate aesthetic profile") from error
         return ProfileRebuildResult(
             status="READY",
+            usable_item_count=len(inputs),
             profile_id=profile_id,
             profile=built.profile,
         )

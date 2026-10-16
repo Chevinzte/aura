@@ -42,6 +42,7 @@ class OwnedItemResult:
     item_id: UUID
     analysis: ItemAnalysisResult
     profile_status: str
+    usable_item_count: int | None = None
     profile_id: UUID | None = None
 
 
@@ -132,13 +133,16 @@ class OwnedItemService:
         try:
             profile_result = self._profile_service.rebuild_if_ready(user_id)
             profile_status = profile_result.status
+            usable_item_count = profile_result.usable_item_count
             profile_id = profile_result.profile_id
         except (ProfileBuildError, ProfilePersistenceError):
             profile_status = "REBUILD_FAILED"
+            usable_item_count = None
             profile_id = None
         return OwnedItemResult(
             item_id=item_id,
             analysis=analysis,
             profile_status=profile_status,
+            usable_item_count=usable_item_count,
             profile_id=profile_id,
         )

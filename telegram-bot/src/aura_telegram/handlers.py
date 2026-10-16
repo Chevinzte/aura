@@ -12,7 +12,9 @@ from aura_telegram.backend import AuraBackendClient, BackendAPIError
 from aura_telegram.messages import (
     backend_error_message,
     candidate_message,
+    help_message,
     owned_item_message,
+    profile_mutation_message,
     profile_message,
 )
 
@@ -24,6 +26,9 @@ CANDIDATE_MODE = "CANDIDATE"
 FEEDBACK_PATTERN = re.compile(
     r"^fb:(?P<match_id>[0-9a-fA-F-]{36}):(?P<feedback_type>LIKE|DISLIKE|BOUGHT|NOT_BOUGHT)$"
 )
+PROFILE_ACTION_PATTERN = re.compile(
+    r"^(?:rm:[0-9a-fA-F-]{36}|rmc:[0-9a-fA-F-]{36}|rmx|rst:y|rst:n)$"
+)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -31,7 +36,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_message is None:
         return
     keyboard = ReplyKeyboardMarkup(
-        [["/add", "/check"], ["/profile", "/done"]],
+        [["/add", "/check"], ["/profile", "/remove"], ["/help", "/done"]],
         resize_keyboard=True,
     )
     await update.effective_message.reply_text(
@@ -69,6 +74,11 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
+async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_message is not None:
+        await update.effective_message.reply_text(help_message())
+
+
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     user = update.effective_user
@@ -91,6 +101,142 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not payload.get("display_name"):
         payload["display_name"] = display_name or "there"
     await message.reply_text(profile_message(payload))
+
+
+async def remove_profile_item(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+    try:
+        payload = await _backend_client(context).list_profile_items(
+            telegram_user_id=user.id,
+            display_name=user.first_name or user.username or None,
+        )
+    except BackendAPIError as error:
+        logger.warning(
+            "AURA backend request failed: code=%s status=%s",
+            error.code,
+            error.status_code,
+        )
+        await message.reply_text(backend_error_message(error.code))
+        return
+
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        await message.reply_text(
+            "You do not have any uploaded belongings to remove. Use /add to begin."
+        )
+        return
+    buttons = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("item_id")
+        label = item.get("label")
+        if isinstance(item_id, str) and isinstance(label, str):
+            created_at = item.get("created_at")
+            date_label = (
+                f" · {created_at[:10]}"
+                if isinstance(created_at, str) and len(created_at) >= 10
+                else ""
+            )
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"{label[:38]}{date_label}",
+                        callback_data=f"rm:{item_id}",
+                    )
+                ]
+            )
+    if not buttons:
+        await message.reply_text("AURA could not display your uploaded belongings.")
+        return
+    buttons.append([InlineKeyboardButton("Cancel", callback_data="rmx")])
+    await message.reply_text(
+        "Choose the belonging you want to remove from your style profile:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def request_profile_reset(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if update.effective_message is None:
+        return
+    await update.effective_message.reply_text(
+        "Clear every uploaded belonging and restart your style profile? "
+        "Candidate checks and feedback history will remain.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Clear profile", callback_data="rst:y"),
+                    InlineKeyboardButton("Cancel", callback_data="rst:n"),
+                ]
+            ]
+        ),
+    )
+
+
+async def handle_profile_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    query = update.callback_query
+    if query is None or not isinstance(query.data, str):
+        return
+    action = query.data
+    if action in {"rmx", "rst:n"}:
+        await query.answer("Cancelled")
+        await query.edit_message_text("No changes were made to your style profile.")
+        return
+    if action.startswith("rm:"):
+        item_id = action.removeprefix("rm:")
+        await query.answer()
+        await query.edit_message_text(
+            "Remove this belonging from your style profile?",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "Remove",
+                            callback_data=f"rmc:{item_id}",
+                        ),
+                        InlineKeyboardButton("Cancel", callback_data="rmx"),
+                    ]
+                ]
+            ),
+        )
+        return
+
+    user = query.from_user
+    try:
+        client = _backend_client(context)
+        if action.startswith("rmc:"):
+            payload = await client.remove_profile_item(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=UUID(action.removeprefix("rmc:")),
+            )
+        else:
+            payload = await client.reset_profile(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+            )
+    except BackendAPIError as error:
+        logger.warning(
+            "AURA backend request failed: code=%s status=%s",
+            error.code,
+            error.status_code,
+        )
+        await query.answer(backend_error_message(error.code), show_alert=True)
+        return
+    await query.answer("Profile updated")
+    await query.edit_message_text(profile_mutation_message(payload))
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

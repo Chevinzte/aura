@@ -1,7 +1,9 @@
 from aura_telegram.messages import (
     backend_error_message,
     candidate_message,
+    help_message,
     owned_item_message,
+    profile_mutation_message,
     profile_message,
 )
 
@@ -10,6 +12,18 @@ def test_owned_item_messages_follow_profile_status() -> None:
     assert "at least five" in owned_item_message({"profile_status": "COLLECTING"})
     assert "profile is ready" in owned_item_message({"profile_status": "READY"})
     assert "could not be refreshed" in owned_item_message({"profile_status": "REBUILD_FAILED"})
+
+
+def test_owned_item_message_includes_collection_progress() -> None:
+    message = owned_item_message(
+        {
+            "profile_status": "COLLECTING",
+            "usable_item_count": 3,
+            "minimum_item_count": 5,
+        }
+    )
+
+    assert "Progress: 3/5 usable items" in message
 
 
 def test_candidate_message_uses_backend_explanation_verbatim() -> None:
@@ -74,3 +88,30 @@ def test_profile_message_reports_collecting_progress() -> None:
     assert "Hello Vinz" in message
     assert "Progress: 3/5 usable items" in message
     assert "/add" in message
+
+
+def test_help_lists_profile_management_commands() -> None:
+    message = help_message()
+
+    assert "/remove" in message
+    assert "/resetprofile" in message
+
+
+def test_profile_mutation_message_explains_rebuild_state() -> None:
+    ready = profile_mutation_message(
+        {
+            "status": "READY",
+            "usable_item_count": 5,
+            "removed_item_count": 1,
+        }
+    )
+    reset = profile_mutation_message(
+        {
+            "status": "COLLECTING",
+            "usable_item_count": 0,
+            "removed_item_count": 6,
+        }
+    )
+
+    assert "rebuilt" in ready
+    assert "Profile cleared" in reset

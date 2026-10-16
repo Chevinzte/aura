@@ -79,6 +79,47 @@ def test_profile_request_sends_identity_headers() -> None:
     assert result["status"] == "COLLECTING"
 
 
+def test_profile_management_requests_use_expected_endpoints() -> None:
+    item_id = uuid4()
+    seen: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        assert request.headers["X-Telegram-User-Id"] == "123"
+        if request.method == "GET":
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(
+            200,
+            json={
+                "status": "COLLECTING",
+                "usable_item_count": 0,
+                "removed_item_count": 1,
+            },
+        )
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+    )
+    run(client.list_profile_items(telegram_user_id=123, display_name="Vinz"))
+    run(
+        client.remove_profile_item(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=item_id,
+        )
+    )
+    run(client.reset_profile(telegram_user_id=123, display_name="Vinz"))
+    run(client.close())
+
+    assert seen == [
+        ("GET", "/v1/profile/items"),
+        ("DELETE", f"/v1/profile/items/{item_id}"),
+        ("DELETE", "/v1/profile"),
+    ]
+
+
 def test_backend_error_detail_is_preserved() -> None:
     async def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(409, json={"detail": "PROFILE_NOT_READY"})

@@ -261,6 +261,12 @@ The initial profile requires at least five usable owned items. A profile is
 rebuilt deterministically whenever a contributing owned item is added, removed,
 or reprocessed.
 
+Removing an owned item soft-deletes it from future profile inputs and
+deactivates the previous profile before rebuilding. Resetting a profile applies
+the same exclusion to all owned items. Historical analyses and immutable profile
+snapshots remain available for explainability; candidate items and feedback are
+not deleted.
+
 The profile contains:
 
 - weighted colour distribution;

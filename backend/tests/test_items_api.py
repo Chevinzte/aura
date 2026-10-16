@@ -42,6 +42,7 @@ class FakeOwnedItemService:
             item_id=uuid4(),
             analysis=SimpleNamespace(analysis_id=analysis_id, features=make_features()),
             profile_status="COLLECTING",
+            usable_item_count=1,
             profile_id=None,
         )
 
@@ -93,6 +94,7 @@ def test_create_owned_item_returns_completed_analysis() -> None:
     assert response.json()["status"] == "READY"
     assert response.json()["features"]["itemType"]["value"] == "handbag"
     assert response.json()["profile_status"] == "COLLECTING"
+    assert response.json()["usable_item_count"] == 1
 
 
 def test_create_owned_item_requires_telegram_identity() -> None:

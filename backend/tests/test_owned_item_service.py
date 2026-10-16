@@ -53,7 +53,11 @@ class FakeAnalysisService:
 
 class FakeProfileService:
     def rebuild_if_ready(self, user_id):
-        return SimpleNamespace(status="COLLECTING", profile_id=None)
+        return SimpleNamespace(
+            status="COLLECTING",
+            usable_item_count=1,
+            profile_id=None,
+        )
 
 
 def make_png() -> bytes:
@@ -103,6 +107,7 @@ def test_owned_item_uploads_persists_and_analyzes() -> None:
     assert repository.create_args is not None
     assert repository.create_args["storage_path"] == storage.uploaded_path
     assert result.profile_status == "COLLECTING"
+    assert result.usable_item_count == 1
 
 
 def test_owned_item_deletes_upload_when_database_creation_fails() -> None:

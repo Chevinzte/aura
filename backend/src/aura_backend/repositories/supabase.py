@@ -19,6 +19,7 @@ from aura_backend.domain.models import (
 )
 
 if TYPE_CHECKING:
+    from aura_backend.application.profile_management import ProfileItemSummary
     from aura_backend.application.profiles import ProfileInput
 
 
@@ -355,6 +356,80 @@ class AuraRepository:
             created_at=_parse_datetime(row.get("created_at")),
         )
 
+    def list_owned_profile_items(
+        self,
+        *,
+        user_id: UUID,
+        pipeline: FeaturePipelineVersion,
+        limit: int,
+    ) -> list[ProfileItemSummary]:
+        from aura_backend.application.profile_management import ProfileItemSummary
+
+        response = (
+            self._client.table("items")
+            .select("id,item_name,created_at,item_visual_features!inner(features)")
+            .eq("user_id", str(user_id))
+            .eq("source", ItemSource.OWNED.value)
+            .eq("status", "READY")
+            .is_("deleted_at", "null")
+            .eq("item_visual_features.status", "COMPLETED")
+            .eq("item_visual_features.vision_provider", pipeline.vision_provider)
+            .eq("item_visual_features.vision_model", pipeline.vision_model)
+            .eq(
+                "item_visual_features.vision_prompt_version",
+                str(pipeline.vision_prompt_version),
+            )
+            .eq(
+                "item_visual_features.feature_schema_version",
+                str(pipeline.feature_schema_version),
+            )
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        if not isinstance(response.data, list):
+            raise RepositoryError("Expected rows while listing owned items")
+
+        items: list[ProfileItemSummary] = []
+        for row in response.data:
+            if not isinstance(row, dict):
+                raise RepositoryError("Malformed owned item row")
+            feature_rows = row.get("item_visual_features")
+            if not isinstance(feature_rows, list) or not feature_rows:
+                raise RepositoryError("Owned item is missing visual features")
+            features = feature_rows[0].get("features")
+            if not isinstance(features, dict):
+                raise RepositoryError("Owned item has malformed visual features")
+            item_type = features.get("itemType")
+            type_value = item_type.get("value") if isinstance(item_type, dict) else None
+            label = row.get("item_name") or features.get("itemName") or type_value or "Belonging"
+            items.append(
+                ProfileItemSummary(
+                    item_id=UUID(str(row["id"])),
+                    label=str(label).strip()[:80] or "Belonging",
+                    created_at=_require_datetime(row.get("created_at")),
+                )
+            )
+        return items
+
+    def remove_owned_item(self, *, user_id: UUID, item_id: UUID) -> None:
+        response = self._client.rpc(
+            "remove_owned_profile_item",
+            {"p_user_id": str(user_id), "p_item_id": str(item_id)},
+        ).execute()
+        _require_single_row(response.data, "removing owned profile item")
+
+    def reset_owned_items(self, *, user_id: UUID) -> int:
+        response = self._client.rpc(
+            "reset_owned_profile_items",
+            {"p_user_id": str(user_id)},
+        ).execute()
+        if not isinstance(response.data, list):
+            raise RepositoryError("Expected rows while resetting owned profile items")
+        if not all(isinstance(row, dict) for row in response.data):
+            raise RepositoryError("Malformed rows while resetting owned profile items")
+        return len(response.data)
+
     def save_match_analysis(
         self,
         *,
@@ -473,3 +548,10 @@ def _parse_datetime(value: Any) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as error:
         raise RepositoryError("Malformed timestamp") from error
+
+
+def _require_datetime(value: Any) -> datetime:
+    parsed = _parse_datetime(value)
+    if parsed is None:
+        raise RepositoryError("Missing timestamp")
+    return parsed

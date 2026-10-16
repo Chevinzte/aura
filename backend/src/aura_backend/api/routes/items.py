@@ -34,6 +34,8 @@ class OwnedItemResponse(BaseModel):
     status: Literal["READY"] = "READY"
     features: ItemVisualFeaturesV1
     profile_status: Literal["COLLECTING", "READY", "REBUILD_FAILED"]
+    usable_item_count: int | None = None
+    minimum_item_count: int = 5
     profile_id: UUID | None = None
 
 
@@ -85,6 +87,7 @@ async def create_owned_item(
         analysis_id=result.analysis.analysis_id,
         features=result.analysis.features,
         profile_status=result.profile_status,
+        usable_item_count=result.usable_item_count,
         profile_id=result.profile_id,
     )
 

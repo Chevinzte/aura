@@ -427,6 +427,7 @@ Use transactions for:
 - claiming an analysis for processing;
 - completing or failing an analysis;
 - creating and activating a new profile snapshot;
+- soft-deleting one or all owned profile items and deactivating the old profile;
 - creating or returning an idempotent match analysis;
 - upserting feedback by category.
 
@@ -448,6 +449,8 @@ MVP defaults are:
 - Do not retain raw provider responses or hidden reasoning in production.
 - Soft-delete individual items first so historical references remain valid.
 - Exclude soft-deleted items from all new profiles and analyses.
+- Profile reset soft-deletes all owned items and deactivates the current profile;
+  it does not delete candidate items, match history, feedback, or retained images.
 
 Deleting a user is an explicit backend workflow:
 

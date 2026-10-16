@@ -97,6 +97,43 @@ class AuraBackendClient:
             headers=self._identity_headers(telegram_user_id, display_name),
         )
 
+    async def list_profile_items(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v1/profile/items",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
+    async def remove_profile_item(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "DELETE",
+            f"/v1/profile/items/{item_id}",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
+    async def reset_profile(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "DELETE",
+            "/v1/profile",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
     async def _upload_item(
         self,
         *,
