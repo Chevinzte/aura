@@ -56,6 +56,12 @@ starts the backend and Telegram bot together, and stops both when you press
   more, up to five per interaction. Controls appear below each generated batch,
   and the user can finish after the first three. Images are inspiration only and
   are not shopping recommendations or profile inputs.
+- `/wardrobe` browses uploaded belongings ten per page. Selecting an item shows
+  its stored private image and current analysis, with actions to correct or remove it.
+- **Edit Item Details** shows the selected field's current value, accepts natural
+  typed corrections with comma-separated values, normalizes common synonyms and
+  colour names, then shows a before-and-after preview. Saving preserves the
+  original AI analysis, creates a versioned correction, and rebuilds the profile.
 - `/remove` lists owned items ten per page with Previous and Next controls, then
   removes one after confirmation.
 - `/resetprofile` clears all owned items from the active profile after confirmation.
@@ -71,8 +77,9 @@ analysis.
 
 The local MVP is implemented and manually verified across `/add`, `/profile`,
 `/check`, feedback buttons, `/suggestion`, `/remove`, and `/resetprofile`.
-Initial V2 work adds fashion-presentation settings for suggestions and clearer,
-item-specific `/check` explanations.
+V2.1 adds fashion-presentation settings for suggestions and clearer,
+item-specific `/check` explanations. V2.2 adds a private wardrobe browser and
+confirmed, guided corrections to owned-item analysis.
 Automated backend and Telegram test suites cover the application and client
 flows. Production deployment and Telegram-to-backend authentication remain
 future work; see `docs/PROJECT_CONTEXT.md` for the complete status and roadmap.

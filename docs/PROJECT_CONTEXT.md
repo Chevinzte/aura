@@ -14,7 +14,9 @@ The current system can:
 - capture taste and purchase-decision feedback;
 - display, update, and reset the user's profile through Telegram;
 - apply an optional user-selected fashion presentation to generated suggestions;
-- produce item-specific version 4 match explanations without changing scoring.
+- produce item-specific version 4 match explanations without changing scoring;
+- browse uploaded belongings with their retained private images;
+- apply confirmed, versioned corrections to selected owned-item feature fields.
 
 The FastAPI backend, Telegram client, Supabase schema, storage integration, AI
 adapters, deterministic profile aggregation, matching logic, and automated tests
@@ -112,6 +114,8 @@ Current commands:
   ready profile, with up to five AI-generated images per interaction;
 - `/settings`: choose Menswear, Womenswear, Gender-neutral, or No preference for
   generated clothing ideas;
+- `/wardrobe`: browse owned belongings ten per page, view the stored image and
+  effective analysis, correct one guided field, or remove the item;
 - `/remove`: browse owned items ten per page, then select and confirm removal of one;
 - `/resetprofile`: confirm removal of all owned profile inputs;
 - `/help`: display command and image guidance;
@@ -190,6 +194,31 @@ image prompts. It does not change visual feature extraction, profile aggregation
 or `/check` scoring. Body type is intentionally deferred until AURA supports
 fit-focused or outfit guidance where that input would provide meaningful value.
 
+## Wardrobe Browser and Corrections
+
+`/wardrobe` is a private browser for active `OWNED` items, not a retailer catalogue
+or outfit builder. It displays ten items per page. Opening an item retrieves the
+exact retained upload from private Supabase Storage through the backend and shows
+the effective structured analysis. Telegram never receives storage credentials or
+a permanent public image URL.
+
+Corrections use **Edit Item Details** and guided field editing. A user selects one
+of Item Name, Item Type, Colours, Patterns, Materials, Textures, Style Traits,
+Shape Traits, or Decorative Details. AURA shows the current effective value and
+typed-input examples. Users may send comma-separated values; common synonyms,
+item-type terms, and colour names are normalized by the backend. Description is
+not editable. Unknown controlled values are rejected with close alternatives and
+no data is changed.
+
+The user reviews Current Value and New Value before saving. Back to Editable
+Fields and Discard Changes preserve the item context without saving, while Back to
+Item leaves editing. The original AI analysis remains immutable. Each confirmed
+save creates a new correction version with corrected features, canonical text,
+and a compatible semantic embedding. The active profile is then rebuilt from
+effective corrected features. Profile snapshots record both the source analysis
+and correction identifier for explainability. If rebuilding fails, AURA restores
+the previously active correction.
+
 ## Item Visual Features V1
 
 Each usable item can include:
@@ -208,7 +237,10 @@ Each usable item can include:
 
 Provider output is schema-validated and normalized into controlled fields.
 Unknown but useful observations may be retained without silently changing the
-controlled vocabulary.
+controlled vocabulary. Controlled-vocabulary revision 2 expands common fashion
+patterns, materials, textures, shapes, decorative details, and style traits.
+Existing images are not automatically reanalyzed; the expanded vocabulary applies
+to new analyses and confirmed manual corrections.
 
 ## Aesthetic Profile V1
 
@@ -216,7 +248,7 @@ Only successfully analyzed `OWNED` items contribute to the profile. `CANDIDATE`
 items never change the profile merely because they were checked.
 
 The initial profile requires at least five usable owned items. The profile is
-rebuilt deterministically when a contributing item is added or removed.
+rebuilt deterministically when a contributing item is added, removed, or corrected.
 
 The profile contains weighted distributions for colours, patterns, materials,
 textures, shapes, decorative details, style traits, and aesthetic signals. It

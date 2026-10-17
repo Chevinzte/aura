@@ -17,6 +17,7 @@ from aura_backend.ai.contracts import (
     VisionAnalyzer,
     VisionResponseError,
 )
+from aura_backend.ai.versions import EMBEDDING_SCHEMA_VERSION
 from aura_backend.core.config import Settings
 from aura_backend.domain.models import (
     AestheticSignalValue,
@@ -152,7 +153,7 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
             api_key=settings.ai_api_key,
             model=settings.embedding_model,
             dimensions=settings.embedding_dimensions,
-            schema_version=1,
+            schema_version=EMBEDDING_SCHEMA_VERSION,
             timeout_seconds=settings.ai_timeout_seconds,
         )
 
@@ -283,13 +284,17 @@ def _normalize_controlled_vocabularies(raw_features: Any) -> Any:
                 _preserve_unmapped_value(observations, source_field, observation)
                 continue
             canonical_value = _canonical_enum_value(observation["value"])
-            target_field = next(
-                (
-                    field
-                    for field, values in allowed_values.items()
-                    if canonical_value in values
-                ),
-                None,
+            target_field = (
+                source_field
+                if canonical_value in allowed_values[source_field]
+                else next(
+                    (
+                        field
+                        for field, values in allowed_values.items()
+                        if canonical_value in values
+                    ),
+                    None,
+                )
             )
             if target_field is None:
                 _preserve_unmapped_value(observations, source_field, canonical_value)

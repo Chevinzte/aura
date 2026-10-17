@@ -1,6 +1,9 @@
 from aura_telegram.messages import (
     backend_error_message,
     candidate_message,
+    correction_instruction_message,
+    correction_preview_message,
+    correction_saved_message,
     fashion_preference_message,
     fashion_preference_saved_message,
     help_message,
@@ -14,6 +17,7 @@ from aura_telegram.messages import (
     suggestion_controls_message,
     suggestion_finished_message,
     suggestion_intro_message,
+    wardrobe_item_message,
 )
 
 
@@ -205,6 +209,46 @@ def test_fashion_preference_messages_explain_scope() -> None:
     assert "does not change your style profile" in prompt
     assert "Gender-neutral" in saved
     assert "/check results" in saved
+
+
+def test_wardrobe_messages_show_features_and_correction_provenance() -> None:
+    message = wardrobe_item_message(
+        {
+            "created_at": "2026-10-17T00:00:00Z",
+            "corrected_fields": ["item_name"],
+            "features": {
+                "itemName": "Blue shirt",
+                "itemType": {"value": "shirt"},
+                "colours": [{"name": "blue", "hex": "#0000FF"}],
+                "styleTraits": [{"value": "casual"}],
+            },
+        }
+    )
+    preview = correction_preview_message(
+        {"features": {"itemName": "Travel shirt", "itemType": {"value": "shirt"}}},
+        "item_name",
+        "Blue shirt",
+    )
+    instruction = correction_instruction_message(
+        {
+            "field": "materials",
+            "input_hint": "Send materials separated by commas.",
+            "examples": ["linen", "cotton blend"],
+        },
+        "Cotton",
+    )
+
+    assert "<b>Blue shirt</b>" in message
+    assert "User-corrected:</b> Item Name" in message
+    assert "Current Value:</b> Blue shirt" in preview
+    assert "New Value:</b> Travel shirt" in preview
+    assert "original AI analysis remains preserved" in preview
+    assert "Current Value:</b> Cotton" in instruction
+    assert "Examples You Can Enter:</b> linen | cotton blend" in instruction
+    assert "replaces this entire field" in instruction
+    assert "profile was rebuilt" in correction_saved_message(
+        {"profile_status": "READY", "usable_item_count": 6}
+    )
 
 
 def test_profile_mutation_message_explains_rebuild_state() -> None:

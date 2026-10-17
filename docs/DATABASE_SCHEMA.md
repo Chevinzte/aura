@@ -233,6 +233,35 @@ Only one active profile is allowed per user through a partial unique index. A
 profile is immutable after creation except for activation state. Activation of a
 new snapshot and deactivation of the prior snapshot occur in one transaction.
 
+### `item_feature_corrections`
+
+Stores immutable user-confirmed overlays for an owned item's AI analysis. The
+source `item_visual_features` row is never overwritten.
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| `id` | `uuid` | Primary key |
+| `user_id` | `uuid` | Required, references `users(id)` |
+| `item_id` | `uuid` | Required, references `items(id)` |
+| `source_features_id` | `uuid` | Required, references `item_visual_features(id)` |
+| `version` | `integer` | Required, positive, unique per item |
+| `is_active` | `boolean` | Required; at most one active correction per item |
+| `corrected_features` | `jsonb` | Required validated feature object |
+| `corrected_fields` | `text[]` | Required non-empty list of user-edited fields |
+| `canonical_embedding_text` | `text` | Required deterministic corrected feature text |
+| `embedding` | `vector(1536)` | Required corrected semantic embedding |
+| `embedding_provider` | `text` | Required |
+| `embedding_model` | `text` | Required |
+| `embedding_dimensions` | `integer` | Required, equals 1536 for version 1 |
+| `embedding_schema_version` | `integer` | Required, positive |
+| `feature_schema_version` | `integer` | Required, positive |
+| `created_at` | `timestamptz` | Required, default `now()` |
+
+Corrections apply only to active, ready `OWNED` items and must remain compatible
+with the active feature and embedding pipeline. A correction save deactivates the
+prior version atomically. A rollback function restores the prior active version if
+the subsequent profile rebuild fails.
+
 ### `aesthetic_profile_items`
 
 Records the exact feature-analysis rows contributing to a profile. This avoids
@@ -243,6 +272,7 @@ queryable.
 | --- | --- | --- |
 | `profile_id` | `uuid` | References `aesthetic_profiles(id)` |
 | `item_visual_features_id` | `uuid` | References `item_visual_features(id)` |
+| `item_feature_correction_id` | `uuid` | Nullable reference to the effective correction version |
 | `effective_weight` | `double precision` | Required, greater than zero |
 | `created_at` | `timestamptz` | Required, default `now()` |
 
@@ -337,9 +367,14 @@ users
 
 items
   1 -> many item_visual_features
+  1 -> many item_feature_corrections
 
 aesthetic_profiles
   many <-> many item_visual_features through aesthetic_profile_items
+
+item_feature_corrections
+  many -> 1 owned item
+  many -> 1 source feature analysis
 
 match_analyses
   many -> 1 candidate item
@@ -451,6 +486,7 @@ MVP defaults are:
 - Retain original images while the user account exists.
 - Retain historical feature analyses, profiles, matches, and feedback to preserve
   explainability and support evaluation.
+- Retain inactive correction versions so profile snapshots remain explainable.
 - Do not retain raw provider responses or hidden reasoning in production.
 - Soft-delete individual items first so historical references remain valid.
 - Exclude soft-deleted items from all new profiles and analyses.
@@ -516,6 +552,9 @@ Production logs must not include:
 - New model or pipeline versions create new analysis rows.
 - New profile algorithms create new snapshots.
 - New scoring versions create new match analyses when recomputation is needed.
+- Additive controlled-vocabulary revisions may promote compatible metadata in
+  place only when canonical field order, vector dimensions, and embedding model
+  remain unchanged. Such a migration must not claim that images were reanalyzed.
 
 ## Initial Implementation Sequence
 

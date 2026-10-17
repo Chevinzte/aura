@@ -32,6 +32,7 @@ class ProfileInput:
     content_sha256: str
     features: ItemVisualFeaturesV1
     embedding: SemanticEmbedding
+    correction_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +84,7 @@ class ProfileRepository(Protocol):
         profile: AestheticProfileV1,
         effective_weights: dict[UUID, float],
         pipeline: FeaturePipelineVersion,
+        correction_ids: dict[UUID, UUID | None],
     ) -> object: ...
 
 
@@ -383,6 +385,9 @@ class ProfileService:
                 profile=built.profile,
                 effective_weights=built.effective_weights,
                 pipeline=self._pipeline,
+                correction_ids={
+                    item.feature_id: item.correction_id for item in inputs
+                },
             )
         except Exception as error:
             raise ProfilePersistenceError("Could not activate aesthetic profile") from error

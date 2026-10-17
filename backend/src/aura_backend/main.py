@@ -6,6 +6,7 @@ from aura_backend.api.routes.preferences import router as preferences_router
 from aura_backend.api.routes.health import router as health_router
 from aura_backend.api.routes.profiles import router as profiles_router
 from aura_backend.api.routes.suggestions import router as suggestions_router
+from aura_backend.api.routes.wardrobe import router as wardrobe_router
 
 
 def create_app() -> FastAPI:
@@ -21,6 +22,7 @@ def create_app() -> FastAPI:
     app.include_router(preferences_router)
     app.include_router(profiles_router)
     app.include_router(suggestions_router)
+    app.include_router(wardrobe_router)
     return app
 
 

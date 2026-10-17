@@ -20,14 +20,18 @@ from aura_telegram.handlers import (
     PREFERENCE_PATTERN,
     PROFILE_ACTION_PATTERN,
     SUGGESTION_PATTERN,
+    WARDROBE_PATTERN,
     add_owned,
+    browse_wardrobe,
     check_candidate,
     done,
     handle_error,
     handle_feedback,
+    handle_correction_text,
     handle_preference_action,
     handle_profile_action,
     handle_suggestion_action,
+    handle_wardrobe_action,
     handle_photo,
     show_help,
     show_profile,
@@ -58,6 +62,7 @@ def build_application(settings: BotSettings) -> Application:
                     BotCommand("profile", "View your style profile"),
                     BotCommand("suggestion", "Build on your style profile"),
                     BotCommand("settings", "Set suggestion fashion preference"),
+                    BotCommand("wardrobe", "Browse and correct your belongings"),
                     BotCommand("remove", "Remove one uploaded belonging"),
                     BotCommand("resetprofile", "Clear and restart your profile"),
                     BotCommand("help", "Show the AURA command guide"),
@@ -81,6 +86,7 @@ def build_application(settings: BotSettings) -> Application:
     application.add_handler(CommandHandler("profile", show_profile))
     application.add_handler(CommandHandler("suggestion", request_suggestions))
     application.add_handler(CommandHandler("settings", show_settings))
+    application.add_handler(CommandHandler("wardrobe", browse_wardrobe))
     application.add_handler(CommandHandler("remove", remove_profile_item))
     application.add_handler(CommandHandler("resetprofile", request_profile_reset))
     application.add_handler(CommandHandler("help", show_help))
@@ -95,7 +101,13 @@ def build_application(settings: BotSettings) -> Application:
     application.add_handler(
         CallbackQueryHandler(handle_suggestion_action, pattern=SUGGESTION_PATTERN)
     )
+    application.add_handler(
+        CallbackQueryHandler(handle_wardrobe_action, pattern=WARDROBE_PATTERN)
+    )
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_correction_text)
+    )
     application.add_error_handler(handle_error)
     return application
 

@@ -5,6 +5,11 @@ from aura_backend.ai.openai_compatible import (
     OpenAICompatibleVisionAnalyzer,
 )
 from aura_backend.ai.openai_images import OpenAIImageGenerator
+from aura_backend.ai.versions import (
+    EMBEDDING_SCHEMA_VERSION,
+    FEATURE_SCHEMA_VERSION,
+    VISION_PROMPT_VERSION,
+)
 from aura_backend.application.item_analysis import ItemAnalysisService
 from aura_backend.application.candidate_items import CandidateItemService
 from aura_backend.application.feedback import FeedbackService
@@ -18,6 +23,7 @@ from aura_backend.application.profiles import (
     ProfileService,
 )
 from aura_backend.application.suggestions import SuggestionService
+from aura_backend.application.wardrobe import WardrobeService
 from aura_backend.core.config import get_settings
 from aura_backend.core.supabase import get_supabase_client
 from aura_backend.media.images import ImageValidator
@@ -29,12 +35,12 @@ def _pipeline(settings) -> FeaturePipelineVersion:
     return FeaturePipelineVersion(
         vision_provider="ai_lodge",
         vision_model=settings.vision_model,
-        vision_prompt_version=1,
-        feature_schema_version=1,
+        vision_prompt_version=VISION_PROMPT_VERSION,
+        feature_schema_version=FEATURE_SCHEMA_VERSION,
         embedding_provider="ai_lodge",
         embedding_model=settings.embedding_model,
         embedding_dimensions=settings.embedding_dimensions,
-        embedding_schema_version=1,
+        embedding_schema_version=EMBEDDING_SCHEMA_VERSION,
     )
 
 
@@ -140,4 +146,24 @@ def get_suggestion_service() -> SuggestionService:
         repository=AuraRepository(get_supabase_client()),
         image_generator=OpenAIImageGenerator.from_settings(settings),
         pipeline=_pipeline(settings),
+    )
+
+
+@lru_cache
+def get_wardrobe_service() -> WardrobeService:
+    """Build the owned-item wardrobe and guided-correction service."""
+    settings = get_settings()
+    client = get_supabase_client()
+    repository = AuraRepository(client)
+    pipeline = _pipeline(settings)
+    return WardrobeService(
+        repository=repository,
+        storage=SupabaseImageStorage(client),
+        embedding_provider=OpenAICompatibleEmbeddingProvider.from_settings(settings),
+        profile_service=ProfileService(
+            repository=repository,
+            builder=AestheticProfileBuilder(),
+            pipeline=pipeline,
+        ),
+        pipeline=pipeline,
     )

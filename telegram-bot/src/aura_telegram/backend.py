@@ -184,6 +184,89 @@ class AuraBackendClient:
             },
         )
 
+    async def list_wardrobe_items(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v1/wardrobe",
+            headers=self._identity_headers(telegram_user_id, display_name),
+            params={"page": page},
+        )
+
+    async def get_wardrobe_item(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            f"/v1/wardrobe/items/{item_id}",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
+    async def get_wardrobe_item_image(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+    ) -> tuple[bytes, str]:
+        return await self._request_bytes(
+            "GET",
+            f"/v1/wardrobe/items/{item_id}/image",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
+    async def get_correction_options(
+        self,
+        *,
+        telegram_user_id: int,
+    ) -> list[dict[str, Any]]:
+        return await self._request_list(
+            "GET",
+            "/v1/wardrobe/correction-options",
+            headers=self._identity_headers(telegram_user_id, None),
+        )
+
+    async def preview_item_correction(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+        field: str,
+        values: list[str],
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/wardrobe/items/{item_id}/corrections/preview",
+            headers=self._identity_headers(telegram_user_id, display_name),
+            json={"field": field, "values": values},
+        )
+
+    async def apply_item_correction(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+        field: str,
+        values: list[str],
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/wardrobe/items/{item_id}/corrections",
+            headers=self._identity_headers(telegram_user_id, display_name),
+            json={"field": field, "values": values},
+        )
+
     async def _upload_item(
         self,
         *,
@@ -225,6 +308,43 @@ class AuraBackendClient:
                 status_code=response.status_code,
             )
         return payload
+
+    async def _request_list(
+        self, method: str, path: str, **kwargs: Any
+    ) -> list[dict[str, Any]]:
+        response = await self._raw_request(method, path, **kwargs)
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise BackendAPIError(
+                "INVALID_BACKEND_RESPONSE",
+                status_code=response.status_code,
+            ) from error
+        if not isinstance(payload, list) or not all(
+            isinstance(item, dict) for item in payload
+        ):
+            raise BackendAPIError(
+                "INVALID_BACKEND_RESPONSE",
+                status_code=response.status_code,
+            )
+        return payload
+
+    async def _request_bytes(
+        self, method: str, path: str, **kwargs: Any
+    ) -> tuple[bytes, str]:
+        response = await self._raw_request(method, path, **kwargs)
+        mime_type = response.headers.get("Content-Type", "application/octet-stream")
+        return response.content, mime_type.split(";", 1)[0]
+
+    async def _raw_request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        try:
+            response = await self._client.request(method, path, **kwargs)
+        except httpx.HTTPError as error:
+            raise BackendAPIError("BACKEND_UNAVAILABLE") from error
+        if response.is_error:
+            code = self._error_code(response)
+            raise BackendAPIError(code, status_code=response.status_code)
+        return response
 
     def _identity_headers(
         self,

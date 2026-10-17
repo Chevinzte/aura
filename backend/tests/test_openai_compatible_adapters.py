@@ -120,7 +120,7 @@ def test_vision_adapter_routes_controlled_values_to_their_schema_field() -> None
     assert result.textures == []
 
 
-def test_vision_adapter_preserves_unknown_vocabulary_in_observations() -> None:
+def test_vision_adapter_accepts_expanded_material_vocabulary() -> None:
     payload = make_features_payload()
     payload["materials"] = [{"value": "satin", "confidence": 0.8}]
 
@@ -140,8 +140,32 @@ def test_vision_adapter_preserves_unknown_vocabulary_in_observations() -> None:
 
     result = run(analyzer.analyze(ImageInput(data=b"image-bytes", mime_type="image/png")))
 
-    assert result.materials == []
-    assert "Unmapped materials value: satin" in result.observations
+    assert [material.value for material in result.materials] == ["satin"]
+
+
+def test_vision_adapter_keeps_shared_value_in_supplied_field() -> None:
+    payload = make_features_payload()
+    payload["shapeTraits"] = []
+    payload["styleTraits"] = [{"value": "relaxed", "confidence": 0.8}]
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps(payload)}}]},
+        )
+
+    analyzer = OpenAICompatibleVisionAnalyzer(
+        base_url="https://gateway.example/v1",
+        api_key="test-key",
+        model="gemini-3.5-flash-lite",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = run(analyzer.analyze(ImageInput(data=b"image-bytes", mime_type="image/png")))
+
+    assert [trait.value for trait in result.style_traits] == ["relaxed"]
+    assert result.shape_traits == []
 
 
 def test_embedding_adapter_returns_configured_dimension_vector() -> None:

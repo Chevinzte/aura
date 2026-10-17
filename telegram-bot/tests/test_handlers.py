@@ -9,10 +9,13 @@ from aura_telegram.handlers import (
     OWNED_ALBUMS_KEY,
     OWNED_MODE,
     add_owned,
+    browse_wardrobe,
+    handle_correction_text,
     handle_preference_action,
     handle_photo,
     handle_profile_action,
     handle_suggestion_action,
+    handle_wardrobe_action,
     remove_profile_item,
     show_profile,
     request_suggestions,
@@ -511,3 +514,308 @@ def test_suggestion_finish_ends_session_and_removes_controls() -> None:
             None,
         )
     ]
+
+
+def test_wardrobe_lists_and_opens_stored_item_photo() -> None:
+    item_id = "31a2b686-ffb6-4ab4-a7be-876540bca13a"
+
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/wardrobe":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [{"item_id": item_id, "label": "Blue shirt"}],
+                    "page": 1,
+                    "page_size": 10,
+                    "has_previous": False,
+                    "has_next": False,
+                },
+            )
+        if request.url.path.endswith("/image"):
+            return httpx.Response(
+                200,
+                content=b"jpeg",
+                headers={"Content-Type": "image/jpeg"},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "item_id": item_id,
+                "created_at": "2026-10-17T00:00:00Z",
+                "corrected_fields": [],
+                "features": {
+                    "itemName": "Blue shirt",
+                    "itemType": {"value": "shirt", "confidence": 1.0},
+                    "colours": [
+                        {
+                            "name": "blue",
+                            "hex": "#0000FF",
+                            "proportion": 1.0,
+                            "confidence": 1.0,
+                        }
+                    ],
+                },
+            },
+        )
+
+    class WardrobeMessage(FakeMessage):
+        def __init__(self) -> None:
+            super().__init__()
+            self.photos: list[bytes] = []
+            self.photo_markups: list[object] = []
+
+        async def reply_photo(self, photo, **kwargs: object) -> None:
+            self.photos.append(photo.read())
+            self.photo_markups.append(kwargs.get("reply_markup"))
+
+    class FakeQuery:
+        def __init__(self, message: WardrobeMessage) -> None:
+            self.data = f"wd:{item_id}"
+            self.message = message
+            self.from_user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+            self.edits: list[str] = []
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+        async def edit_message_text(self, text: str, **_: object) -> None:
+            self.edits.append(text)
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    message = WardrobeMessage()
+    user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+    context = SimpleNamespace(user_data={}, bot_data={"backend_client": client})
+    run(
+        browse_wardrobe(
+            SimpleNamespace(effective_message=message, effective_user=user),
+            context,
+        )
+    )  # type: ignore[arg-type]
+    query = FakeQuery(message)
+    run(
+        handle_wardrobe_action(SimpleNamespace(callback_query=query), context)
+    )  # type: ignore[arg-type]
+    run(client.close())
+
+    assert message.reply_markups[0].inline_keyboard[0][0].callback_data == f"wd:{item_id}"
+    assert message.photos == [b"jpeg"]
+    assert message.photo_markups[0].inline_keyboard[0][0].callback_data == f"wde:{item_id}"
+    assert message.photo_markups[0].inline_keyboard[0][0].text == "Edit Item Details"
+
+
+def test_editing_shows_current_value_and_returns_to_field_menu() -> None:
+    item_id = "31a2b686-ffb6-4ab4-a7be-876540bca13a"
+
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/correction-options"):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "field": "materials",
+                        "input_hint": "Send materials separated by commas.",
+                        "examples": ["linen", "cotton blend"],
+                    }
+                ],
+            )
+        return httpx.Response(
+            200,
+            json={
+                "item_id": item_id,
+                "created_at": "2026-10-17T00:00:00Z",
+                "corrected_fields": [],
+                "features": {
+                    "itemName": "Blue shirt",
+                    "itemType": {"value": "shirt", "confidence": 1.0},
+                    "colours": [],
+                    "materials": [{"value": "cotton", "confidence": 1.0}],
+                },
+            },
+        )
+
+    class PhotoMessage:
+        photo = [object()]
+
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = f"wdf:materials:{item_id}"
+            self.message = PhotoMessage()
+            self.from_user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+            self.captions: list[tuple[str, object]] = []
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+        async def edit_message_caption(self, caption: str, **kwargs: object) -> None:
+            self.captions.append((caption, kwargs.get("reply_markup")))
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    context = SimpleNamespace(
+        user_data={"wardrobe_state": {"page": 1, "item_id": item_id}},
+        bot_data={"backend_client": client},
+    )
+    query = FakeQuery()
+    run(handle_wardrobe_action(SimpleNamespace(callback_query=query), context))
+
+    assert "Current Value:</b> Cotton" in query.captions[-1][0]
+    assert "Examples You Can Enter:</b> linen | cotton blend" in query.captions[-1][0]
+    assert query.captions[-1][1].inline_keyboard[0][0].text == "Back to Editable Fields"
+
+    query.data = "wca"
+    run(handle_wardrobe_action(SimpleNamespace(callback_query=query), context))
+    run(client.close())
+
+    assert context.user_data["wardrobe_state"]["stage"] == "choose_field"
+    assert query.captions[-1][1].inline_keyboard[-1][0].text == "Back to Item"
+
+
+def test_back_to_item_reopens_photo_from_text_editing_message() -> None:
+    item_id = "31a2b686-ffb6-4ab4-a7be-876540bca13a"
+
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/image"):
+            return httpx.Response(
+                200,
+                content=b"jpeg",
+                headers={"Content-Type": "image/jpeg"},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "item_id": item_id,
+                "created_at": "2026-10-17T00:00:00Z",
+                "corrected_fields": [],
+                "features": {
+                    "itemName": "Blue shirt",
+                    "itemType": {"value": "shirt", "confidence": 1.0},
+                    "colours": [],
+                },
+            },
+        )
+
+    class TextMessage:
+        photo: list[object] = []
+
+        def __init__(self) -> None:
+            self.photos: list[bytes] = []
+
+        async def reply_photo(self, photo, **_: object) -> None:
+            self.photos.append(photo.read())
+
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = "wdi"
+            self.message = TextMessage()
+            self.from_user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+            self.edits: list[str] = []
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+        async def edit_message_text(self, text: str, **_: object) -> None:
+            self.edits.append(text)
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    context = SimpleNamespace(
+        user_data={"wardrobe_state": {"page": 1, "item_id": item_id}},
+        bot_data={"backend_client": client},
+    )
+    query = FakeQuery()
+
+    run(handle_wardrobe_action(SimpleNamespace(callback_query=query), context))
+    run(client.close())
+
+    assert query.edits == ["Item details reopened below."]
+    assert query.message.photos == [b"jpeg"]
+    assert context.user_data["wardrobe_state"]["stage"] == "view"
+
+
+def test_guided_correction_requires_preview_then_confirmation() -> None:
+    item_id = "31a2b686-ffb6-4ab4-a7be-876540bca13a"
+
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith(
+            "/corrections" if not request.url.path.endswith("/preview") else "/preview"
+        )
+        payload = {
+            "item_id": item_id,
+            "field": "item_name",
+            "features": {
+                "itemName": "Travel shirt",
+                "itemType": {"value": "shirt", "confidence": 1.0},
+                "colours": [],
+            },
+        }
+        if not request.url.path.endswith("/preview"):
+            payload.update({"profile_status": "READY", "usable_item_count": 6})
+        return httpx.Response(200, json=payload)
+
+    class CorrectionMessage(FakeMessage):
+        def __init__(self) -> None:
+            super().__init__()
+            self.text = "Travel shirt"
+
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = "wcc:y"
+            self.message = SimpleNamespace()
+            self.from_user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+            self.edits: list[str] = []
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+        async def edit_message_text(self, text: str, **_: object) -> None:
+            self.edits.append(text)
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    context = SimpleNamespace(
+        user_data={
+            "wardrobe_state": {
+                "page": 1,
+                "item_id": item_id,
+                "field": "item_name",
+                "current_value": "Blue shirt",
+                "stage": "awaiting_value",
+            }
+        },
+        bot_data={"backend_client": client},
+    )
+    message = CorrectionMessage()
+    user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+    run(
+        handle_correction_text(
+            SimpleNamespace(effective_message=message, effective_user=user),
+            context,
+        )
+    )  # type: ignore[arg-type]
+
+    assert context.user_data["wardrobe_state"]["stage"] == "confirm"
+    assert message.reply_markups[0].inline_keyboard[0][0].callback_data == "wcc:y"
+    assert "Current Value:</b> Blue shirt" in message.replies[-1]
+    assert "New Value:</b> Travel shirt" in message.replies[-1]
+
+    query = FakeQuery()
+    run(
+        handle_wardrobe_action(SimpleNamespace(callback_query=query), context)
+    )  # type: ignore[arg-type]
+    run(client.close())
+
+    assert "Correction saved" in query.edits[-1]
+    assert context.user_data["wardrobe_state"] == {"page": 1}

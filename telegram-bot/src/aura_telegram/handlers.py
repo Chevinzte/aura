@@ -26,6 +26,10 @@ from aura_telegram.backend import AuraBackendClient, BackendAPIError
 from aura_telegram.messages import (
     backend_error_message,
     candidate_message,
+    correction_value,
+    correction_instruction_message,
+    correction_preview_message,
+    correction_saved_message,
     fashion_preference_message,
     fashion_preference_saved_message,
     help_message,
@@ -39,6 +43,7 @@ from aura_telegram.messages import (
     suggestion_controls_message,
     suggestion_finished_message,
     suggestion_intro_message,
+    wardrobe_item_message,
 )
 
 
@@ -51,6 +56,7 @@ OWNED_ALBUM_SETTLE_SECONDS = 0.8
 MAX_OWNED_ALBUM_ITEMS = 10
 SUGGESTION_STATE_KEY = "suggestion_state"
 MAX_SUGGESTION_IMAGES = 5
+WARDROBE_STATE_KEY = "wardrobe_state"
 FEEDBACK_PATTERN = re.compile(
     r"^fb:(?P<match_id>[0-9a-fA-F-]{36}):(?P<feedback_type>LIKE|DISLIKE|BOUGHT|NOT_BOUGHT)$"
 )
@@ -64,6 +70,12 @@ SUGGESTION_PATTERN = re.compile(
 )
 PREFERENCE_PATTERN = re.compile(
     r"^pref:(MENSWEAR|WOMENSWEAR|GENDER_NEUTRAL|NO_PREFERENCE):(suggestion|settings)$"
+)
+WARDROBE_PATTERN = re.compile(
+    r"^(?:wd:[0-9a-fA-F-]{36}|wdp:[1-9][0-9]*|wde:[0-9a-fA-F-]{36}|"
+    r"wdf:(?:item_name|item_type|colours|patterns|materials|textures|style_traits|"
+    r"shape_traits|decorative_details):[0-9a-fA-F-]{36}|wdb|wdi|wdx|wca|"
+    r"wcc:[yn]|wdr:[0-9a-fA-F-]{36}|wrr:[yn])$"
 )
 
 
@@ -86,13 +98,14 @@ class OwnedAlbumBatch:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop(MODE_KEY, None)
+    context.user_data.pop(WARDROBE_STATE_KEY, None)
     if update.effective_message is None:
         return
     keyboard = ReplyKeyboardMarkup(
         [
             ["/add", "/check"],
             ["/profile", "/suggestion"],
-            ["/remove", "/resetprofile"],
+            ["/wardrobe", "/remove", "/resetprofile"],
             ["/settings", "/help", "/done"],
         ],
         resize_keyboard=True,
@@ -429,6 +442,441 @@ def _suggestion_category_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+async def browse_wardrobe(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+    context.user_data[WARDROBE_STATE_KEY] = {"page": 1}
+    text, reply_markup = await _wardrobe_page_content(
+        context=context,
+        user=user,
+        page=1,
+    )
+    await message.reply_text(text, reply_markup=reply_markup)
+
+
+async def _wardrobe_page_content(
+    *,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+    page: int,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    try:
+        payload = await _backend_client(context).list_wardrobe_items(
+            telegram_user_id=user.id,
+            display_name=user.first_name or user.username or None,
+            page=page,
+        )
+    except BackendAPIError as error:
+        return backend_error_message(error.code), None
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        if page == 1:
+            return "Your wardrobe is empty. Use /add to upload belongings you like.", None
+        return "There are no belongings on this page.", InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Previous", callback_data=f"wdp:{page - 1}")]]
+        )
+    buttons: list[list[InlineKeyboardButton]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get("item_id")
+        label = item.get("label")
+        if isinstance(item_id, str) and isinstance(label, str):
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        label[:48],
+                        callback_data=f"wd:{item_id}",
+                    )
+                ]
+            )
+    navigation: list[InlineKeyboardButton] = []
+    if payload.get("has_previous") is True and page > 1:
+        navigation.append(
+            InlineKeyboardButton("Previous", callback_data=f"wdp:{page - 1}")
+        )
+    if payload.get("has_next") is True:
+        navigation.append(InlineKeyboardButton("Next", callback_data=f"wdp:{page + 1}"))
+    if navigation:
+        buttons.append(navigation)
+    buttons.append([InlineKeyboardButton("Close", callback_data="wdx")])
+    return (
+        f"Your wardrobe\n\nSelect a belonging to view its photo and analysis.\n\nPage {page}",
+        InlineKeyboardMarkup(buttons),
+    )
+
+
+async def handle_wardrobe_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    query = update.callback_query
+    if query is None or not isinstance(query.data, str) or query.message is None:
+        return
+    action = query.data
+    state = context.user_data.setdefault(WARDROBE_STATE_KEY, {"page": 1})
+    if not isinstance(state, dict):
+        state = {"page": 1}
+        context.user_data[WARDROBE_STATE_KEY] = state
+    user = query.from_user
+
+    if action == "wdx":
+        context.user_data.pop(WARDROBE_STATE_KEY, None)
+        await query.answer("Wardrobe closed")
+        await _edit_callback_message(query, "Wardrobe browser closed.")
+        return
+    if action == "wdb":
+        page = state.get("page", 1)
+        page = page if isinstance(page, int) and page > 0 else 1
+        text, markup = await _wardrobe_page_content(
+            context=context,
+            user=user,
+            page=page,
+        )
+        await query.answer()
+        await query.message.reply_text(text, reply_markup=markup)
+        return
+    if action.startswith("wdp:"):
+        page = int(action.removeprefix("wdp:"))
+        state.clear()
+        state["page"] = page
+        text, markup = await _wardrobe_page_content(
+            context=context,
+            user=user,
+            page=page,
+        )
+        await query.answer()
+        await query.edit_message_text(text, reply_markup=markup)
+        return
+    if action.startswith("wd:"):
+        item_id = UUID(action.removeprefix("wd:"))
+        await query.answer()
+        await query.edit_message_text("Loading wardrobe item…")
+        try:
+            client = _backend_client(context)
+            detail = await client.get_wardrobe_item(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=item_id,
+            )
+            image_data, mime_type = await client.get_wardrobe_item_image(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=item_id,
+            )
+        except BackendAPIError as error:
+            await query.edit_message_text(backend_error_message(error.code))
+            return
+        state.update({"item_id": str(item_id), "stage": "view"})
+        image_file = BytesIO(image_data)
+        image_file.name = f"wardrobe-item.{_image_extension(mime_type)}"
+        await query.edit_message_text("Wardrobe item opened below.")
+        await query.message.reply_photo(
+            photo=image_file,
+            caption=wardrobe_item_message(detail),
+            parse_mode=ParseMode.HTML,
+            reply_markup=_wardrobe_item_keyboard(item_id),
+        )
+        return
+    if action.startswith("wde:"):
+        item_id = UUID(action.removeprefix("wde:"))
+        state.update({"item_id": str(item_id), "stage": "choose_field"})
+        await query.answer()
+        await query.edit_message_caption(
+            caption=(
+                "Edit Item Details\n\nChoose the field you want to update. "
+                "AURA will show its current value before you type a replacement."
+            ),
+            reply_markup=_correction_field_keyboard(item_id),
+        )
+        return
+    if action.startswith("wdf:"):
+        _, field, item_id_text = action.split(":", 2)
+        try:
+            client = _backend_client(context)
+            options = await client.get_correction_options(
+                telegram_user_id=user.id,
+            )
+            detail = await client.get_wardrobe_item(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=UUID(item_id_text),
+            )
+        except BackendAPIError as error:
+            await query.answer(backend_error_message(error.code), show_alert=True)
+            return
+        option = next((value for value in options if value.get("field") == field), None)
+        if option is None:
+            await query.answer("That correction field is unavailable.", show_alert=True)
+            return
+        features = detail.get("features")
+        if not isinstance(features, dict):
+            await query.answer("That item analysis is unavailable.", show_alert=True)
+            return
+        current_value = correction_value(features, field)
+        state.update(
+            {
+                "item_id": item_id_text,
+                "field": field,
+                "current_value": current_value,
+                "stage": "awaiting_value",
+            }
+        )
+        await query.answer()
+        await _edit_callback_message(
+            query,
+            correction_instruction_message(option, current_value),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Back to Editable Fields", callback_data="wca")]]
+            ),
+        )
+        return
+    if action in {"wca", "wcc:n"}:
+        try:
+            item_id = UUID(str(state["item_id"]))
+        except (KeyError, ValueError):
+            await query.answer("This editing session has expired.", show_alert=True)
+            return
+        page = state.get("page", 1)
+        state.clear()
+        state.update({"page": page, "item_id": str(item_id), "stage": "choose_field"})
+        if action == "wcc:n":
+            await query.answer("Changes discarded")
+        else:
+            await query.answer()
+        await _edit_callback_message(
+            query,
+            "Edit Item Details\n\nChoose another field to update.",
+            reply_markup=_correction_field_keyboard(item_id),
+        )
+        return
+    if action == "wdi":
+        try:
+            item_id = UUID(str(state["item_id"]))
+            client = _backend_client(context)
+            detail = await client.get_wardrobe_item(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=item_id,
+            )
+            image: tuple[bytes, str] | None = None
+            if not getattr(query.message, "photo", None):
+                image = await client.get_wardrobe_item_image(
+                    telegram_user_id=user.id,
+                    display_name=user.first_name or user.username or None,
+                    item_id=item_id,
+                )
+        except (KeyError, ValueError):
+            await query.answer("This editing session has expired.", show_alert=True)
+            return
+        except BackendAPIError as error:
+            await query.answer(backend_error_message(error.code), show_alert=True)
+            return
+        state.update({"stage": "view"})
+        await query.answer()
+        if getattr(query.message, "photo", None):
+            await query.edit_message_caption(
+                caption=wardrobe_item_message(detail),
+                parse_mode=ParseMode.HTML,
+                reply_markup=_wardrobe_item_keyboard(item_id),
+            )
+        else:
+            if image is None:
+                await query.edit_message_text("AURA could not reopen that item photo.")
+                return
+            image_data, mime_type = image
+            image_file = BytesIO(image_data)
+            image_file.name = f"wardrobe-item.{_image_extension(mime_type)}"
+            await query.edit_message_text("Item details reopened below.")
+            await query.message.reply_photo(
+                photo=image_file,
+                caption=wardrobe_item_message(detail),
+                parse_mode=ParseMode.HTML,
+                reply_markup=_wardrobe_item_keyboard(item_id),
+            )
+        return
+    if action == "wcc:y":
+        if state.get("stage") != "confirm":
+            await query.answer("This correction has expired.", show_alert=True)
+            return
+        try:
+            item_id = UUID(str(state["item_id"]))
+            field = str(state["field"])
+            values = state["values"]
+            if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+                raise ValueError
+        except (KeyError, ValueError):
+            await query.answer("This correction has expired.", show_alert=True)
+            return
+        await query.answer()
+        await query.edit_message_text("Saving correction and rebuilding your profile…")
+        try:
+            payload = await _backend_client(context).apply_item_correction(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=item_id,
+                field=field,
+                values=values,
+            )
+        except BackendAPIError as error:
+            await query.edit_message_text(backend_error_message(error.code))
+            return
+        page = state.get("page", 1)
+        state.clear()
+        state["page"] = page
+        await query.edit_message_text(
+            correction_saved_message(payload),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Back to Wardrobe", callback_data="wdb")]]
+            ),
+        )
+        return
+    if action.startswith("wdr:"):
+        item_id_text = action.removeprefix("wdr:")
+        state.update({"remove_item_id": item_id_text, "stage": "confirm_remove"})
+        await query.answer()
+        await query.edit_message_caption(
+            caption=(
+                "Remove this belonging from your style profile? Historical analyses and "
+                "feedback remain preserved."
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [[
+                    InlineKeyboardButton("Remove Item", callback_data="wrr:y"),
+                    InlineKeyboardButton("Cancel", callback_data="wrr:n"),
+                ]]
+            ),
+        )
+        return
+    if action.startswith("wrr:"):
+        if action == "wrr:n":
+            await query.answer("Cancelled")
+            await query.edit_message_caption(caption="No changes were made to your wardrobe.")
+            return
+        try:
+            item_id = UUID(str(state["remove_item_id"]))
+        except (KeyError, ValueError):
+            await query.answer("This removal has expired.", show_alert=True)
+            return
+        try:
+            payload = await _backend_client(context).remove_profile_item(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=item_id,
+            )
+        except BackendAPIError as error:
+            await query.answer(backend_error_message(error.code), show_alert=True)
+            return
+        await query.answer("Belonging removed")
+        await query.edit_message_caption(caption=profile_mutation_message(payload))
+
+
+async def handle_correction_text(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    user = update.effective_user
+    state = context.user_data.get(WARDROBE_STATE_KEY)
+    if (
+        message is None
+        or user is None
+        or not isinstance(state, dict)
+        or state.get("stage") != "awaiting_value"
+        or not isinstance(message.text, str)
+    ):
+        return
+    try:
+        item_id = UUID(str(state["item_id"]))
+        field = str(state["field"])
+        current_value = str(state["current_value"])
+    except (KeyError, ValueError):
+        context.user_data.pop(WARDROBE_STATE_KEY, None)
+        await message.reply_text("This correction has expired. Use /wardrobe to start again.")
+        return
+    values = (
+        [message.text.strip()]
+        if field in {"item_name", "item_type"}
+        else [value.strip() for value in message.text.split(",") if value.strip()]
+    )
+    try:
+        payload = await _backend_client(context).preview_item_correction(
+            telegram_user_id=user.id,
+            display_name=user.first_name or user.username or None,
+            item_id=item_id,
+            field=field,
+            values=values,
+        )
+    except BackendAPIError as error:
+        if error.status_code == 422:
+            await message.reply_text(
+                f"That value was not accepted. {error.code}\n\n"
+                "Please type another value. Your current item has not changed."
+            )
+        else:
+            await message.reply_text(backend_error_message(error.code))
+        return
+    state.update({"values": values, "stage": "confirm"})
+    await message.reply_text(
+        correction_preview_message(payload, field, current_value),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(
+            [[
+                InlineKeyboardButton("Save Correction", callback_data="wcc:y"),
+                InlineKeyboardButton("Discard Changes", callback_data="wcc:n"),
+            ]]
+        ),
+    )
+
+
+def _wardrobe_item_keyboard(item_id: UUID) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Edit Item Details", callback_data=f"wde:{item_id}")],
+            [InlineKeyboardButton("Remove Item", callback_data=f"wdr:{item_id}")],
+            [InlineKeyboardButton("Back to Wardrobe", callback_data="wdb")],
+            [InlineKeyboardButton("Close", callback_data="wdx")],
+        ]
+    )
+
+
+def _correction_field_keyboard(item_id: UUID) -> InlineKeyboardMarkup:
+    fields = (
+        ("Item Name", "item_name"),
+        ("Item Type", "item_type"),
+        ("Colours", "colours"),
+        ("Patterns", "patterns"),
+        ("Materials", "materials"),
+        ("Textures", "textures"),
+        ("Style Traits", "style_traits"),
+        ("Shape Traits", "shape_traits"),
+        ("Decorative Details", "decorative_details"),
+    )
+    buttons = [
+        [InlineKeyboardButton(label, callback_data=f"wdf:{field}:{item_id}")]
+        for label, field in fields
+    ]
+    buttons.append([InlineKeyboardButton("Back to Item", callback_data="wdi")])
+    return InlineKeyboardMarkup(buttons)
+
+
+async def _edit_callback_message(query: Any, text: str, **kwargs: Any) -> None:
+    if getattr(query.message, "photo", None):
+        await query.edit_message_caption(caption=text, **kwargs)
+    else:
+        await query.edit_message_text(text, **kwargs)
+
+
+def _image_extension(mime_type: str) -> str:
+    return {"image/png": "png", "image/webp": "webp"}.get(mime_type, "jpg")
+
+
 async def add_owned(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data[MODE_KEY] = OWNED_MODE
     if update.effective_message is not None:
@@ -456,9 +904,13 @@ async def check_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop(MODE_KEY, None)
+    correction_cancelled = context.user_data.pop(WARDROBE_STATE_KEY, None) is not None
     if update.effective_message is not None:
         await update.effective_message.reply_text(
-            "Upload mode closed. Use /add for more belongings or /check for a comparison."
+            (
+                "Current correction cancelled. " if correction_cancelled else ""
+            )
+            + "Upload mode closed. Use /add for more belongings or /check for a comparison."
         )
 
 

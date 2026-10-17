@@ -107,6 +107,9 @@ def help_message() -> str:
         "image when omitted.\n\n"
         "/check — Compare a new item with your current style profile.\n\n"
         "/profile — See what AURA has learned from your uploaded belongings.\n\n"
+        "/wardrobe — Browse uploaded belongings and stored photos. Use Edit Item "
+        "Details to view current values, type corrections, and preview changes "
+        "before saving.\n\n"
         "/settings — Choose whether generated clothing ideas should use menswear, "
         "womenswear, gender-neutral fashion, or no presentation preference.\n\n"
         "/remove — Browse uploaded belongings ten per page and remove one from your "
@@ -195,6 +198,142 @@ def suggestion_controls_message(*, generated_count: int, maximum_count: int) -> 
 def suggestion_finished_message() -> str:
     return (
         "Suggestion session finished. Use /suggestion whenever you want more ideas."
+    )
+
+
+def wardrobe_item_message(payload: dict[str, Any]) -> str:
+    features = payload.get("features")
+    if not isinstance(features, dict):
+        return "AURA could not display this belonging's analysis."
+    sections = [
+        f"<b>{escape(_feature_text(features, 'itemName', 'item_name') or 'Belonging')}</b>",
+        f"<b>Item Type:</b> {escape(_item_type_text(features))}",
+    ]
+    colours = features.get("colours")
+    if isinstance(colours, list):
+        colour_values = [
+            f"{str(colour.get('name')).title()} ({str(colour.get('hex')).upper()})"
+            for colour in colours[:4]
+            if isinstance(colour, dict) and colour.get("name") and colour.get("hex")
+        ]
+        if colour_values:
+            sections.append(f"<b>Colours:</b> {escape(', '.join(colour_values))}")
+    for label, camel_key, snake_key in (
+        ("Style Traits", "styleTraits", "style_traits"),
+        ("Patterns", "patterns", "patterns"),
+        ("Materials", "materials", "materials"),
+        ("Textures", "textures", "textures"),
+        ("Shape Traits", "shapeTraits", "shape_traits"),
+        ("Details", "decorativeDetails", "decorative_details"),
+    ):
+        values = _observation_values(features.get(camel_key, features.get(snake_key)))
+        if values:
+            sections.append(f"<b>{label}:</b> {escape(', '.join(values))}")
+    corrected_fields = payload.get("corrected_fields")
+    if isinstance(corrected_fields, list) and corrected_fields:
+        labels = [correction_field_label(str(value)) for value in corrected_fields]
+        sections.append(f"<b>User-corrected:</b> {escape(', '.join(labels))}")
+    created_at = payload.get("created_at")
+    if isinstance(created_at, str) and len(created_at) >= 10:
+        sections.append(f"<b>Added:</b> {escape(created_at[:10])}")
+    return "\n\n".join(sections)
+
+
+def correction_field_label(field: str) -> str:
+    return {
+        "item_name": "Item Name",
+        "item_type": "Item Type",
+        "colours": "Colours",
+        "patterns": "Patterns",
+        "materials": "Materials",
+        "textures": "Textures",
+        "style_traits": "Style Traits",
+        "shape_traits": "Shape Traits",
+        "decorative_details": "Decorative Details",
+    }.get(field, field.replace("_", " ").title())
+
+
+def correction_instruction_message(
+    option: dict[str, Any],
+    current_value: str,
+) -> str:
+    field = str(option.get("field", ""))
+    hint = str(option.get("input_hint", "Send the corrected value."))
+    examples = option.get("examples")
+    sections = [
+        f"Editing <b>{escape(correction_field_label(field))}</b>",
+        f"<b>Current Value:</b> {escape(current_value)}",
+        escape(hint),
+    ]
+    if isinstance(examples, list) and examples:
+        display = " | ".join(str(value) for value in examples)
+        sections.append(f"<b>Examples You Can Enter:</b> {escape(display)}")
+    if field not in {"item_name", "item_type"}:
+        sections.append(
+            "Your entry replaces this entire field. Include any current values you "
+            "want to keep."
+        )
+    sections.append("Type your replacement value below.")
+    return "\n\n".join(sections)
+
+
+def correction_preview_message(
+    payload: dict[str, Any],
+    field: str,
+    current_value: str,
+) -> str:
+    features = payload.get("features")
+    if not isinstance(features, dict):
+        return "AURA could not preview this correction."
+    new_value = correction_value(features, field)
+    return (
+        f"<b>Confirm {escape(correction_field_label(field))} Change</b>\n\n"
+        f"<b>Current Value:</b> {escape(current_value)}\n\n"
+        f"<b>New Value:</b> {escape(new_value)}\n\n"
+        "Saving creates a new correction version and rebuilds your profile. "
+        "The original AI analysis remains preserved."
+    )
+
+
+def correction_value(features: dict[str, Any], field: str) -> str:
+    if field == "item_name":
+        return _feature_text(features, "itemName", "item_name") or "Not recorded"
+    if field == "item_type":
+        return _item_type_text(features)
+    if field == "colours":
+        colours = features.get("colours")
+        if isinstance(colours, list):
+            values = [
+                str(colour.get("name")).replace("_", " ").title()
+                for colour in colours
+                if isinstance(colour, dict) and colour.get("name")
+            ]
+            return ", ".join(values) or "Not recorded"
+        return "Not recorded"
+    key_map = {
+        "patterns": ("patterns", "patterns"),
+        "materials": ("materials", "materials"),
+        "textures": ("textures", "textures"),
+        "style_traits": ("styleTraits", "style_traits"),
+        "shape_traits": ("shapeTraits", "shape_traits"),
+        "decorative_details": ("decorativeDetails", "decorative_details"),
+    }
+    camel_key, snake_key = key_map.get(field, (field, field))
+    values = _observation_values(features.get(camel_key, features.get(snake_key)))
+    return ", ".join(values) or "Not recorded"
+
+
+def correction_saved_message(payload: dict[str, Any]) -> str:
+    status = payload.get("profile_status")
+    item_count = payload.get("usable_item_count")
+    if status == "READY":
+        return (
+            "Correction saved. Your style profile was rebuilt from "
+            f"{item_count} usable belongings."
+        )
+    return (
+        "Correction saved. AURA preserved the updated item while your profile "
+        "continues collecting enough usable belongings."
     )
 
 
@@ -383,5 +522,39 @@ def backend_error_message(code: str) -> str:
         "OWNED_ITEM_NOT_FOUND": (
             "That belonging is no longer available in your profile. Use /remove to refresh the list."
         ),
+        "WARDROBE_ITEM_NOT_FOUND": (
+            "That belonging is no longer available. Use /wardrobe to refresh the list."
+        ),
+        "WARDROBE_UNAVAILABLE": (
+            "AURA could not load your wardrobe right now. Please retry shortly."
+        ),
+        "WARDROBE_CORRECTION_UNAVAILABLE": (
+            "AURA could not safely apply that correction. Your previous analysis and "
+            "profile were kept. Please retry."
+        ),
     }
     return messages.get(code, "Something went wrong while contacting AURA. Please try again.")
+
+
+def _feature_text(features: dict[str, Any], camel_key: str, snake_key: str) -> str:
+    value = features.get(camel_key, features.get(snake_key))
+    return str(value).strip() if isinstance(value, str) else ""
+
+
+def _item_type_text(features: dict[str, Any]) -> str:
+    item_type = features.get("itemType", features.get("item_type"))
+    if isinstance(item_type, dict):
+        value = item_type.get("value")
+        if isinstance(value, str) and value.strip():
+            return value.replace("_", " ").title()
+    return "Unknown"
+
+
+def _observation_values(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        str(item["value"]).replace("_", " ").title()
+        for item in value[:5]
+        if isinstance(item, dict) and item.get("value")
+    ]

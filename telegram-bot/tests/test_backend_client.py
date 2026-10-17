@@ -195,6 +195,79 @@ def test_preference_requests_use_backend_contract() -> None:
     ]
 
 
+def test_wardrobe_requests_use_backend_contract() -> None:
+    item_id = uuid4()
+    seen: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        assert request.headers["X-Telegram-User-Id"] == "123"
+        if request.url.path.endswith("/image"):
+            return httpx.Response(200, content=b"jpeg", headers={"Content-Type": "image/jpeg"})
+        if request.url.path.endswith("/correction-options"):
+            return httpx.Response(200, json=[{"field": "item_name"}])
+        if request.url.path.endswith("/corrections/preview"):
+            return httpx.Response(200, json={"field": "item_name", "features": {}})
+        if request.url.path.endswith("/corrections"):
+            return httpx.Response(200, json={"profile_status": "READY"})
+        if request.url.path == f"/v1/wardrobe/items/{item_id}":
+            return httpx.Response(200, json={"item_id": str(item_id)})
+        return httpx.Response(200, json={"items": [], "page": 1})
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+    )
+    run(client.list_wardrobe_items(telegram_user_id=123, display_name="Vinz"))
+    run(
+        client.get_wardrobe_item(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=item_id,
+        )
+    )
+    image, mime_type = run(
+        client.get_wardrobe_item_image(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=item_id,
+        )
+    )
+    options = run(client.get_correction_options(telegram_user_id=123))
+    run(
+        client.preview_item_correction(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=item_id,
+            field="item_name",
+            values=["Travel bag"],
+        )
+    )
+    run(
+        client.apply_item_correction(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=item_id,
+            field="item_name",
+            values=["Travel bag"],
+        )
+    )
+    run(client.close())
+
+    assert image == b"jpeg"
+    assert mime_type == "image/jpeg"
+    assert options == [{"field": "item_name"}]
+    assert seen == [
+        ("GET", "/v1/wardrobe"),
+        ("GET", f"/v1/wardrobe/items/{item_id}"),
+        ("GET", f"/v1/wardrobe/items/{item_id}/image"),
+        ("GET", "/v1/wardrobe/correction-options"),
+        ("POST", f"/v1/wardrobe/items/{item_id}/corrections/preview"),
+        ("POST", f"/v1/wardrobe/items/{item_id}/corrections"),
+    ]
+
+
 def test_backend_error_detail_is_preserved() -> None:
     async def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(409, json={"detail": "PROFILE_NOT_READY"})

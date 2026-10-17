@@ -22,6 +22,11 @@ if TYPE_CHECKING:
     from aura_backend.application.preferences import FashionPresentation
     from aura_backend.application.profile_management import ProfileItemSummary
     from aura_backend.application.profiles import ProfileInput
+    from aura_backend.application.wardrobe import (
+        CorrectionField,
+        WardrobeItemRecord,
+        WardrobeItemSummary,
+    )
 
 
 class RepositoryError(RuntimeError):
@@ -259,7 +264,7 @@ class AuraRepository:
             .select(
                 "id,features,embedding,embedding_provider,embedding_model,"
                 "embedding_dimensions,embedding_schema_version,"
-                "items!inner(content_sha256)"
+                "items!inner(id,content_sha256)"
             )
             .eq("status", "COMPLETED")
             .eq("vision_provider", pipeline.vision_provider)
@@ -280,22 +285,41 @@ class AuraRepository:
         if not isinstance(response.data, list):
             raise RepositoryError("Expected rows while loading profile inputs")
 
+        correction_rows = self._list_active_correction_rows(user_id=user_id)
+        corrections = {
+            str(row["source_features_id"]): row
+            for row in correction_rows
+            if isinstance(row, dict)
+            and row.get("source_features_id")
+            and row.get("embedding_provider") == pipeline.embedding_provider
+            and row.get("embedding_model") == pipeline.embedding_model
+            and row.get("embedding_dimensions") == pipeline.embedding_dimensions
+            and row.get("embedding_schema_version") == pipeline.embedding_schema_version
+            and row.get("feature_schema_version") == pipeline.feature_schema_version
+        }
         inputs: list[ProfileInput] = []
         for row in response.data:
             if not isinstance(row, dict) or not isinstance(row.get("items"), dict):
                 raise RepositoryError("Malformed profile input row")
-            embedding_values = _parse_vector(row.get("embedding"))
+            correction = corrections.get(str(row["id"]))
+            effective = correction if correction is not None else row
+            embedding_values = _parse_vector(effective.get("embedding"))
             inputs.append(
                 ProfileInput(
                     feature_id=UUID(str(row["id"])),
                     content_sha256=str(row["items"]["content_sha256"]),
-                    features=ItemVisualFeaturesV1.model_validate(row["features"]),
+                    features=ItemVisualFeaturesV1.model_validate(
+                        effective.get("corrected_features", effective.get("features"))
+                    ),
                     embedding=SemanticEmbedding(
-                        provider=str(row["embedding_provider"]),
-                        model=str(row["embedding_model"]),
-                        dimensions=int(row["embedding_dimensions"]),
-                        schema_version=int(row["embedding_schema_version"]),
+                        provider=str(effective["embedding_provider"]),
+                        model=str(effective["embedding_model"]),
+                        dimensions=int(effective["embedding_dimensions"]),
+                        schema_version=int(effective["embedding_schema_version"]),
                         values=embedding_values,
+                    ),
+                    correction_id=(
+                        UUID(str(correction["id"])) if correction is not None else None
                     ),
                 )
             )
@@ -308,6 +332,7 @@ class AuraRepository:
         profile: AestheticProfileV1,
         effective_weights: dict[UUID, float],
         pipeline: FeaturePipelineVersion,
+        correction_ids: dict[UUID, UUID | None] | None = None,
     ) -> dict[str, Any]:
         response = (
             self._client.rpc(
@@ -329,6 +354,11 @@ class AuraRepository:
                         {
                             "feature_id": str(feature_id),
                             "effective_weight": weight,
+                            "correction_id": (
+                                str(correction_ids[feature_id])
+                                if correction_ids and correction_ids.get(feature_id)
+                                else None
+                            ),
                         }
                         for feature_id, weight in effective_weights.items()
                     ],
@@ -337,6 +367,261 @@ class AuraRepository:
             .execute()
         )
         return _require_single_row(response.data, "activating aesthetic profile")
+
+    def list_owned_wardrobe_items(
+        self,
+        *,
+        user_id: UUID,
+        pipeline: FeaturePipelineVersion,
+        limit: int,
+        offset: int = 0,
+    ) -> list[WardrobeItemSummary]:
+        from aura_backend.application.wardrobe import WardrobeItemSummary
+
+        response = (
+            self._client.table("items")
+            .select("id,item_name,created_at,item_visual_features!inner(id,features)")
+            .eq("user_id", str(user_id))
+            .eq("source", ItemSource.OWNED.value)
+            .eq("status", "READY")
+            .is_("deleted_at", "null")
+            .eq("item_visual_features.status", "COMPLETED")
+            .eq("item_visual_features.vision_provider", pipeline.vision_provider)
+            .eq("item_visual_features.vision_model", pipeline.vision_model)
+            .eq(
+                "item_visual_features.vision_prompt_version",
+                str(pipeline.vision_prompt_version),
+            )
+            .eq(
+                "item_visual_features.feature_schema_version",
+                str(pipeline.feature_schema_version),
+            )
+            .eq("item_visual_features.embedding_provider", pipeline.embedding_provider)
+            .eq("item_visual_features.embedding_model", pipeline.embedding_model)
+            .eq(
+                "item_visual_features.embedding_dimensions",
+                str(pipeline.embedding_dimensions),
+            )
+            .eq(
+                "item_visual_features.embedding_schema_version",
+                str(pipeline.embedding_schema_version),
+            )
+            .order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        if not isinstance(response.data, list):
+            raise RepositoryError("Expected rows while listing wardrobe items")
+        corrections = {
+            str(row["item_id"]): row
+            for row in self._list_active_correction_rows(user_id=user_id)
+            if isinstance(row, dict) and row.get("item_id")
+        }
+        items: list[WardrobeItemSummary] = []
+        for row in response.data:
+            feature_rows = row.get("item_visual_features") if isinstance(row, dict) else None
+            if not isinstance(feature_rows, list) or not feature_rows:
+                raise RepositoryError("Wardrobe item is missing visual features")
+            source = feature_rows[0]
+            correction = corrections.get(str(row["id"]))
+            if correction is not None and not self._correction_matches_pipeline(
+                correction=correction,
+                source_features_id=source.get("id"),
+                pipeline=pipeline,
+            ):
+                correction = None
+            features = (
+                correction.get("corrected_features")
+                if correction is not None
+                else source.get("features")
+            )
+            validated = ItemVisualFeaturesV1.model_validate(features)
+            label = (
+                validated.item_name
+                if correction is not None
+                else row.get("item_name") or validated.item_name or validated.item_type.value
+            )
+            items.append(
+                WardrobeItemSummary(
+                    item_id=UUID(str(row["id"])),
+                    label=str(label).strip()[:80] or "Belonging",
+                    created_at=_require_datetime(row.get("created_at")),
+                )
+            )
+        return items
+
+    def get_owned_wardrobe_item(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        pipeline: FeaturePipelineVersion,
+    ) -> WardrobeItemRecord | None:
+        from aura_backend.application.wardrobe import CorrectionField, WardrobeItemRecord
+
+        response = (
+            self._client.table("items")
+            .select(
+                "id,user_id,created_at,storage_path,mime_type,"
+                "item_visual_features!inner(id,features)"
+            )
+            .eq("id", str(item_id))
+            .eq("user_id", str(user_id))
+            .eq("source", ItemSource.OWNED.value)
+            .eq("status", "READY")
+            .is_("deleted_at", "null")
+            .eq("item_visual_features.status", "COMPLETED")
+            .eq("item_visual_features.vision_provider", pipeline.vision_provider)
+            .eq("item_visual_features.vision_model", pipeline.vision_model)
+            .eq(
+                "item_visual_features.vision_prompt_version",
+                str(pipeline.vision_prompt_version),
+            )
+            .eq(
+                "item_visual_features.feature_schema_version",
+                str(pipeline.feature_schema_version),
+            )
+            .eq("item_visual_features.embedding_provider", pipeline.embedding_provider)
+            .eq("item_visual_features.embedding_model", pipeline.embedding_model)
+            .eq(
+                "item_visual_features.embedding_dimensions",
+                str(pipeline.embedding_dimensions),
+            )
+            .eq(
+                "item_visual_features.embedding_schema_version",
+                str(pipeline.embedding_schema_version),
+            )
+            .execute()
+        )
+        row = _optional_single_row(response.data, "loading wardrobe item")
+        if row is None:
+            return None
+        feature_rows = row.get("item_visual_features")
+        if not isinstance(feature_rows, list) or not feature_rows:
+            raise RepositoryError("Wardrobe item is missing visual features")
+        source = feature_rows[0]
+        corrections = [
+            correction
+            for correction in self._list_active_correction_rows(user_id=user_id)
+            if str(correction.get("item_id")) == str(item_id)
+        ]
+        correction = corrections[0] if corrections else None
+        if correction is not None and not self._correction_matches_pipeline(
+            correction=correction,
+            source_features_id=source.get("id"),
+            pipeline=pipeline,
+        ):
+            correction = None
+        features = (
+            correction.get("corrected_features")
+            if correction is not None
+            else source.get("features")
+        )
+        fields = correction.get("corrected_fields", []) if correction is not None else []
+        return WardrobeItemRecord(
+            item_id=UUID(str(row["id"])),
+            user_id=UUID(str(row["user_id"])),
+            source_features_id=UUID(str(source["id"])),
+            storage_path=str(row["storage_path"]),
+            mime_type=str(row["mime_type"]),
+            created_at=_require_datetime(row.get("created_at")),
+            features=ItemVisualFeaturesV1.model_validate(features),
+            corrected_fields=[CorrectionField(value) for value in fields],
+            active_correction_id=(
+                UUID(str(correction["id"])) if correction is not None else None
+            ),
+        )
+
+    def activate_item_feature_correction(
+        self,
+        *,
+        correction_id: UUID,
+        user_id: UUID,
+        item_id: UUID,
+        source_features_id: UUID,
+        corrected_features: ItemVisualFeaturesV1,
+        canonical_embedding_text: str,
+        embedding: SemanticEmbedding,
+        corrected_fields: list[CorrectionField],
+        pipeline: FeaturePipelineVersion,
+    ) -> dict[str, Any]:
+        response = self._client.rpc(
+            "activate_item_feature_correction",
+            {
+                "p_correction_id": str(correction_id),
+                "p_user_id": str(user_id),
+                "p_item_id": str(item_id),
+                "p_source_features_id": str(source_features_id),
+                "p_corrected_features": corrected_features.model_dump(
+                    by_alias=True, mode="json"
+                ),
+                "p_canonical_embedding_text": canonical_embedding_text,
+                "p_embedding": embedding.values,
+                "p_corrected_fields": [field.value for field in corrected_fields],
+                "p_embedding_provider": embedding.provider,
+                "p_embedding_model": embedding.model,
+                "p_embedding_dimensions": embedding.dimensions,
+                "p_embedding_schema_version": embedding.schema_version,
+                "p_feature_schema_version": pipeline.feature_schema_version,
+            },
+        ).execute()
+        return _require_single_row(response.data, "activating item feature correction")
+
+    def restore_item_feature_correction(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        correction_id: UUID,
+        previous_correction_id: UUID | None,
+    ) -> None:
+        self._client.rpc(
+            "restore_item_feature_correction",
+            {
+                "p_user_id": str(user_id),
+                "p_item_id": str(item_id),
+                "p_failed_correction_id": str(correction_id),
+                "p_previous_correction_id": (
+                    str(previous_correction_id) if previous_correction_id else None
+                ),
+            },
+        ).execute()
+
+    def _list_active_correction_rows(self, *, user_id: UUID) -> list[dict[str, Any]]:
+        response = (
+            self._client.table("item_feature_corrections")
+            .select(
+                "id,item_id,source_features_id,corrected_features,corrected_fields,"
+                "embedding,embedding_provider,embedding_model,embedding_dimensions,"
+                "embedding_schema_version,feature_schema_version"
+            )
+            .eq("user_id", str(user_id))
+            .eq("is_active", "true")
+            .execute()
+        )
+        if not isinstance(response.data, list) or not all(
+            isinstance(row, dict) for row in response.data
+        ):
+            raise RepositoryError("Expected rows while loading active corrections")
+        return response.data
+
+    @staticmethod
+    def _correction_matches_pipeline(
+        *,
+        correction: dict[str, Any],
+        source_features_id: Any,
+        pipeline: FeaturePipelineVersion,
+    ) -> bool:
+        return (
+            str(correction.get("source_features_id")) == str(source_features_id)
+            and correction.get("embedding_provider") == pipeline.embedding_provider
+            and correction.get("embedding_model") == pipeline.embedding_model
+            and correction.get("embedding_dimensions") == pipeline.embedding_dimensions
+            and correction.get("embedding_schema_version")
+            == pipeline.embedding_schema_version
+            and correction.get("feature_schema_version")
+            == pipeline.feature_schema_version
+        )
 
     def get_active_profile(
         self,

@@ -259,7 +259,7 @@ because they were evaluated.
 
 The initial profile requires at least five usable owned items. A profile is
 rebuilt deterministically whenever a contributing owned item is added, removed,
-or reprocessed.
+reprocessed, or corrected.
 
 Removing an owned item soft-deletes it from future profile inputs and
 deactivates the previous profile before rebuilding. Resetting a profile applies
@@ -299,6 +299,25 @@ The profile contains:
   embeddings.
 - Diversity is measured separately for colour and style and is used when
   evaluating intentional contrast.
+
+### Guided Feature Corrections
+
+Owned-item corrections are user-confirmed overlays, not edits to the original AI
+analysis. A correction changes one guided field per interaction, is validated by
+the same `ItemVisualFeaturesV1` contract, and is previewed before persistence.
+Users type natural values, separating multiple values with commas. The backend
+normalizes casing, spacing, common synonyms, and common item-type terms. Colour
+names are mapped to standard hex values, so users do not need to provide hex
+codes. Unknown controlled values are rejected with close accepted alternatives;
+they are never silently added to profile data. Description remains read-only.
+
+Saving a correction generates canonical embedding text and a fresh semantic
+embedding from the complete corrected feature object. The correction is compatible
+only with its recorded feature and embedding schema versions. Profile aggregation
+uses the active correction when compatible and otherwise uses the original
+analysis. Every resulting profile contribution records both the source feature ID
+and optional correction ID. The previous correction is restored if profile
+rebuilding fails.
 
 ## Candidate Matching V1
 
@@ -471,6 +490,7 @@ The MVP uses the domain entities proposed in `PROJECT_CONTEXT.md`:
 - users;
 - items;
 - item visual features;
+- item feature corrections;
 - aesthetic profiles;
 - match analyses;
 - feedback.
@@ -580,15 +600,15 @@ prompts in a way that leaks user data or overfits the pipeline to the test set.
 
 ## Versioning and Migration
 
-Initial versions are:
+Current versions are:
 
 ```text
-feature_schema_version=1
+feature_schema_version=2
 vision_prompt_version=1
-embedding_schema_version=1
+embedding_schema_version=2
 profile_algorithm_version=1
 scoring_version=1
-explanation_version=3
+explanation_version=4
 ```
 
 Increment the relevant version when a change can alter persisted output or its
@@ -598,6 +618,13 @@ require recomputing match results when old and new results need to be compared.
 
 Old and new representations may coexist during migration, but incompatible
 embeddings or profile versions must never be compared directly.
+
+Vocabulary revision 2 is additive: it expands accepted enum values without
+changing canonical field order, vector dimensions, or the embedding model. Existing
+feature rows, corrections, and profiles are promoted through a metadata-only
+migration, including the stored centroid schema marker. Existing images and vectors
+are not regenerated. New uploads and confirmed corrections can use the expanded
+values.
 
 ## Future Native Image Embeddings
 
