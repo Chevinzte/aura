@@ -1,293 +1,330 @@
 # AURA Project Context
 
-## Project
+## Status
 
-AURA is an AI-powered aesthetic matching system that learns from a user's
-belongings and evaluates how well new items fit their personal style.
+AURA's local MVP is implemented.
 
-The motivating problem is that people may like individual items but struggle
-to understand whether those items form a cohesive aesthetic.
+The current system can:
 
-Example:
-A user owns floral/pink/beige earrings, bracelets and wallets, but has a navy
-blue water bottle that feels visually out of place.
+- collect belongings a user confirms they like;
+- extract structured visual features from each belonging;
+- build a multidimensional aesthetic profile after five usable owned items;
+- compare a candidate item with the active profile;
+- return an explainable, subjective compatibility assessment;
+- capture taste and purchase-decision feedback;
+- display, update, and reset the user's profile through Telegram.
 
-AURA should help answer:
+The FastAPI backend, Telegram client, Supabase schema, storage integration, AI
+adapters, deterministic profile aggregation, matching logic, and automated tests
+are implemented. Deployment is not yet decided.
 
-"Does this item fit my aesthetic?"
+## Product
 
-## Product Direction
+AURA is an AI-powered aesthetic matcher that learns from belongings a user likes
+and evaluates how a new item may fit or intentionally contrast with their
+personal style.
 
-The primary product is an Aesthetic Matcher.
+The core question is:
 
-Aesthetic Discovery is used as the onboarding experience.
+> Does this item fit my aesthetic?
 
-AURA should NOT force users into one aesthetic label such as "coquette" or
-"minimalist". A user's aesthetic should be represented as a combination of
-visual preferences.
+AURA is an Aesthetic Matcher. Aesthetic discovery supports onboarding, but AURA
+must not force a user into one rigid label such as "coquette" or "minimalist."
+The user's aesthetic is represented as a combination of visual preferences.
 
-## MVP User Flow
+## Architecture
 
-1. User starts AURA through Telegram.
-2. User uploads approximately 5-10 belongings they like.
-3. AURA analyses each item's visual characteristics.
-4. AURA builds the user's aesthetic profile.
-5. User uploads an item they own or are considering buying.
-6. AURA compares the candidate item against their aesthetic profile.
-7. AURA returns an explainable compatibility assessment.
-8. User can provide feedback such as like/dislike.
-9. Feedback can eventually improve the user's aesthetic profile.
+```text
+Telegram Bot
+     |
+     v
+FastAPI Backend ----> Supabase PostgreSQL + Storage
+     |
+     +----> AI Lodge OpenAI-compatible API
+     |
+     `----> OpenAI Images API
+```
 
-## MVP Interface
-
-Telegram Bot.
-
-Do NOT couple business logic to Telegram.
-
-Telegram should act as a client of the backend so that a web/mobile frontend
-can be added later without rewriting the core application.
-
-Future architecture:
-
-Telegram ─┐
-          ├── FastAPI Backend ── Supabase
-Web App ──┘
+Telegram is a frontend adapter only. It must not contain prompts, profile
+aggregation, scoring, persistence, or provider-specific AI logic. Business logic
+belongs in the FastAPI application layer so a web or mobile client can be added
+without rewriting the core system.
 
 ## Technology Stack
 
-Language: Python
+- Language: Python 3.12+
+- Backend: FastAPI
+- MVP client: Telegram Bot API using long polling
+- Database: Supabase PostgreSQL
+- Vector storage: pgvector in Supabase PostgreSQL
+- Image storage: private Supabase Storage bucket
+- MVP identity: Telegram user ID
+- AI gateway: AI Lodge through an OpenAI-compatible API
+- Vision model: `gemini-3.5-flash-lite`
+- Embedding model: `text-embedding-3-small`
+- Embedding dimensions: 1536
+- Optional reference-image provider: OpenAI Images API
+- Reference-image model: environment-configured, initially `gpt-image-2.5-flare`
+- Deployment: not decided
 
-Backend:
-- FastAPI
+Model identifiers and provider connection details are environment configuration.
+AI providers must remain replaceable behind provider-neutral interfaces.
 
-MVP Frontend:
-- Telegram Bot API
+## Repository Structure
 
-Database:
-- Supabase PostgreSQL
-
-Image Storage:
-- Supabase Storage
-
-Authentication for MVP:
-- Telegram user ID
-
-Potential future authentication:
-- Supabase Auth
-
-Potential vector storage:
-- pgvector through Supabase/PostgreSQL
-
-AI/Vision implementation:
-- NOT DECIDED YET
-
-Deployment:
-- NOT DECIDED YET
-
-## Proposed Repository Structure
-
+```text
 aura/
-├── backend/
-├── telegram-bot/
-├── ai/
-├── docs/
-├── .env.example
-├── .gitignore
-├── docker-compose.yml
-└── README.md
+|-- backend/                 FastAPI API and core business logic
+|-- telegram-bot/            Telegram frontend adapter
+|-- supabase/migrations/     PostgreSQL schema and database functions
+|-- docs/                    Architecture and product decisions
+|-- ai/                      AI-related project area
+|-- .env.example             Required configuration names
+|-- restart-aura.ps1         Combined local service launcher
+`-- README.md                Setup and usage instructions
+```
 
-## Core Domain Model
+## MVP Telegram Flow
 
-### User
+1. The user starts AURA through Telegram.
+2. The user uses `/add` to upload belongings they genuinely like, either individually
+   or as a Telegram album of up to ten different items.
+3. AURA validates each image, extracts visual features, and creates a semantic
+   feature embedding.
+4. Upload responses show progress toward the five-item minimum.
+5. AURA builds or rebuilds the user's profile automatically.
+6. The user can inspect the profile with `/profile`.
+7. The user uses `/check` to evaluate an owned or prospective item.
+8. AURA returns a classification with matching and contrasting evidence.
+9. The user can submit taste and purchase-decision feedback.
+10. The user can use `/remove` or `/resetprofile` to change profile inputs.
 
-Represents an AURA user.
+Current commands:
 
-Possible fields:
+- `/start`: show primary actions;
+- `/add`: enter owned-item upload mode and accept one photo or an album of up to ten
+  different items, with one primary item per photo and optional captions;
+- `/check`: enter candidate comparison mode;
+- `/profile`: display the current profile or collection progress;
+- `/suggestion`: generate non-commercial wardrobe-building reference items from a
+  ready profile, with up to five AI-generated images per interaction;
+- `/remove`: browse owned items ten per page, then select and confirm removal of one;
+- `/resetprofile`: confirm removal of all owned profile inputs;
+- `/help`: display command and image guidance;
+- `/done`: leave the current upload mode.
 
-- id: UUID
-- telegram_user_id: BIGINT, unique
-- display_name
-- onboarding_complete
-- created_at
+The Telegram command menu is refreshed automatically when the bot starts.
 
-For the Telegram MVP, Telegram identity is sufficient.
-Do not introduce Supabase Auth unless needed.
+## Manual Acceptance Status
 
-### Item
+The local Telegram flow has been manually verified for:
 
-Represents an object uploaded by the user.
+- `/add` with individual photos and albums of 5, 10, and 12 photos; Telegram
+  delivers albums larger than ten as separate media groups, and AURA processes
+  each received group;
+- `/profile` generation and display after reaching the five-item minimum;
+- `/check` classification, structured evidence, and feedback actions for Fits my
+  taste, Not my taste, Bought it, and Passed on it;
+- `/suggestion` intent and category selection, generated reference images, and
+  the optional two-more flow;
+- `/remove` confirmation, cancellation, profile rebuilding, and navigation beyond
+  the first ten owned items;
+- `/resetprofile` confirmation, owned-item clearing, and progress reset.
 
-Examples:
-- earrings
-- bracelet
-- wallet
-- water bottle
-- bag
-- clothing
+These checks establish that the local MVP works end to end with the configured
+Supabase, AI Lodge, OpenAI Images, and Telegram services. They do not replace
+production security, deployment, monitoring, or broader quality evaluation.
 
-Possible fields:
+## AI Pipeline
 
-- item_id
-- user_id
-- image_url
-- item_type
-- item_name
-- source
-- created_at
+The accepted MVP pipeline is defined in `docs/AI_PIPELINE.md`:
 
-Possible source values:
+```text
+Image
+  -> image validation
+  -> structured visual feature extraction
+  -> canonical feature text
+  -> semantic embedding
+  -> owned-item profile aggregation
+  -> deterministic candidate/profile comparison
+  -> classification and evidence-grounded explanation
+  -> feedback capture
+```
 
-OWNED
-CANDIDATE
+Structured visual features are the primary explainable representation. The
+embedding is a secondary semantic signal generated from canonical feature text;
+it is not a native image embedding.
 
-OWNED means the item contributes to understanding the user's aesthetic.
+The vision model extracts observable evidence only. It must not build profiles,
+calculate compatibility, choose the final classification, or write an
+ungrounded recommendation.
 
-CANDIDATE means the item is being evaluated and should not automatically
-change the user's aesthetic.
+## Wardrobe Suggestions
 
-### ItemVisualFeatures
+`/suggestion` is an optional profile-guided inspiration flow, not a shopping or
+outfit-generation system. It requires a ready profile and lets the user choose a
+safe extension, intentional contrast, or surprise direction, followed by Any
+Category, Tops, Outerwear, Pants, Accessories, or Footwear. The backend uses the
+complete active profile and owned item types to plan distinct single-item ideas
+within that category, then asks a provider-neutral image generator for isolated
+product-style reference images.
 
-AI-generated visual analysis of an item.
+The first request generates three references. Telegram may request two more in
+the same interaction, for a maximum of five. Images must show one item only,
+without people, outfits, brands, logos, text, or retailer claims. Suggestions do
+not create owned or candidate items, mutate the profile, or influence matching.
+Generated images are not persisted by AURA; after they are sent, they remain in
+the Telegram conversation under Telegram's normal retention behavior.
 
-Potential features:
+## Item Visual Features V1
 
-- primary_colours
-- patterns
-- materials
-- style_traits
-- aesthetic_tags
-- embedding
-- ai_description
+Each usable item can include:
 
-Example:
+- item type and inferred item name;
+- colours with hex values, proportions, and confidence;
+- patterns;
+- materials;
+- textures;
+- shape traits;
+- decorative details;
+- style traits;
+- supporting aesthetic signals;
+- image quality and an evidence-based description;
+- canonical feature text and its semantic embedding.
 
-{
-  "primaryColours": ["blush pink", "cream"],
-  "patterns": ["floral"],
-  "materials": ["gold metal"],
-  "styleTraits": ["delicate", "feminine", "romantic"],
-  "aestheticTags": {
-    "soft_feminine": 0.88,
-    "cottagecore": 0.61,
-    "minimalist": 0.20
-  }
-}
+Provider output is schema-validated and normalized into controlled fields.
+Unknown but useful observations may be retained without silently changing the
+controlled vocabulary.
 
-The exact AI representation has NOT been finalized.
+## Aesthetic Profile V1
 
-## Aesthetic Profile
+Only successfully analyzed `OWNED` items contribute to the profile. `CANDIDATE`
+items never change the profile merely because they were checked.
 
-Aggregated representation of the user's preferences.
+The initial profile requires at least five usable owned items. The profile is
+rebuilt deterministically when a contributing item is added or removed.
 
-Potential data:
+The profile contains weighted distributions for colours, patterns, materials,
+textures, shapes, decorative details, style traits, and aesthetic signals. It
+also stores a normalized embedding centroid, colour and style diversity,
+contributing feature identifiers, and a generated evidence-based summary.
 
-- dominant_colours
-- secondary_colours
-- preferred_patterns
-- preferred_materials
-- style_traits
-- aesthetic_tags
-- profile_embedding
-- generated_description
-- updated_at
+The user-facing `/profile` response exposes only display-safe leading traits and
+the summary. It does not expose embeddings, weights, internal identifiers, or
+model metadata.
 
-Example concept:
+## Candidate Matching
 
-{
-  "dominantColours": ["blush pink", "beige", "cream"],
-  "preferredPatterns": ["floral"],
-  "styleTraits": ["soft", "delicate", "feminine"]
-}
+Candidate matching combines deterministic components for:
 
-The profile should be multidimensional rather than assigning one aesthetic.
+- colour compatibility;
+- style-trait compatibility;
+- pattern and material compatibility;
+- shape and decorative-detail compatibility;
+- semantic feature-embedding similarity.
 
-## Match Analysis
+Internal numerical scores support consistent classification but are not
+presented as objective truth. User-facing classifications are:
 
-Represents the comparison between a candidate item and the user's aesthetic.
+- Strong Fit
+- Moderate Fit
+- Intentional Contrast
+- Weak Fit
+- Uncertain
 
-Potential fields:
+The `/check` explanation format is:
 
-- analysis_id
-- user_id
-- candidate_item_id
-- profile_id
-- overall_score
-- colour_score
-- style_score
-- pattern_score
-- explanation
-- recommendation
-- created_at
+```text
+Classification: [result]
 
-Scores should NOT be presented as objective scientific measures.
+Matching Evidence: [up to two grounded similarities]
 
-The UI may instead communicate results such as:
+Contrasting Evidence: [meaningful contrast or limited-overlap evidence]
 
-Strong Fit
-Moderate Fit
-Intentional Contrast
-Weak Fit
-
-The explanation is more important than the numerical score.
+Subjective Qualifier: Based on your uploaded items, this is subjective guidance rather than a rule.
+```
 
 ## Feedback
 
-Users should eventually be able to tell AURA whether its assessment reflects
-their preferences.
+Supported feedback values are:
 
-Potential feedback:
+- `LIKE`
+- `DISLIKE`
+- `BOUGHT`
+- `NOT_BOUGHT`
 
-LIKE
-DISLIKE
-BOUGHT
-NOT_BOUGHT
+Feedback is persisted and associated with the completed match. MVP V1 does not
+automatically change profile features, weights, thresholds, or scoring from this
+feedback. Learning from feedback is a later, explicitly designed feature.
 
-This data may eventually allow AURA to learn preferences such as:
+## Profile Management and Retention
 
-"The user generally prefers soft neutral colours but likes one bold contrasting
-accessory."
+`/remove` and `/resetprofile` require explicit Telegram confirmation.
+
+Removing owned items:
+
+- lists active owned items newest-first with ten-item Telegram pages;
+- verifies ownership in the backend;
+- soft-deletes only `OWNED` items;
+- deactivates the previous profile atomically;
+- rebuilds the profile when at least five usable owned items remain;
+- preserves candidate items, matches, feedback, historical analyses, immutable
+  profile snapshots, and retained images.
+
+Full account and storage deletion is a separate future backend workflow.
+
+## Security Boundary
+
+Supabase server-side credentials and AI provider credentials belong only in the
+FastAPI runtime. Telegram and future clients must never access Supabase directly
+or receive server-side secrets.
+
+Telegram user ID is sufficient identity for the local MVP. Before exposing the
+backend publicly, requests from the Telegram service must be authenticated with
+an internal shared secret or equivalent private service boundary. Plain
+`X-Telegram-User-Id` headers must not be trusted from the public internet.
+
+Do not introduce Supabase Auth unless a future client requires it and the change
+is discussed explicitly.
 
 ## Product Principles
 
 1. Personal aesthetic is subjective.
-2. Do not treat aesthetic compatibility as objective truth.
-3. Explain WHY an item matches or contrasts.
-4. Do not force users into one aesthetic category.
+2. Do not treat compatibility as objective truth.
+3. Explain why an item matches or contrasts.
+4. Do not collapse a user into one aesthetic label.
 5. Allow intentional contrast.
-6. User feedback should eventually influence recommendations.
-7. Keep Telegram separate from core business logic.
-8. Design the backend so another frontend can be added later.
+6. Keep Telegram separate from core business logic.
+7. Keep AI providers replaceable.
+8. Preserve versioned evidence and profile provenance.
+9. Do not let candidate checks silently alter the profile.
+10. Require confirmation for destructive profile actions.
 
 ## Out of Scope for Initial MVP
 
-Do NOT initially build:
+Do not initially build:
 
-- product recommendation marketplace
-- shopping catalogue
-- retailer integrations
-- web scraping
-- outfit generation
-- full digital wardrobe
-- complex ML recommendation system
-- web/mobile frontend
+- a product recommendation marketplace;
+- shopping catalogue or retailer integrations;
+- web scraping;
+- outfit generation;
+- a full digital wardrobe;
+- a complex learned recommendation system;
+- a web or mobile frontend;
+- automatic profile learning from feedback;
+- Supabase Auth without a frontend requirement.
 
-The MVP should prove one core interaction:
+## Current Priorities
 
-"Learn what I like, then tell me whether this new item fits me."
+The local MVP feature set is complete. Remaining work should prioritize:
 
-## Major Open Question
+1. authenticating Telegram-to-backend requests before public deployment;
+2. selecting deployment providers for the FastAPI service and Telegram worker;
+3. configuring production secrets, monitoring, rate limits, and backups;
+4. evaluating classification and explanation quality on approximately 30-50
+   representative owned and candidate images;
+5. testing onboarding with real users before expanding the feature set.
 
-The next major architectural decision is the AI pipeline:
-
-Image
-→ visual feature extraction
-→ aesthetic representation
-→ user profile aggregation
-→ candidate/profile comparison
-→ explainable recommendation
-
-We have NOT yet selected the vision model, embedding model, scoring algorithm,
-or exact matching methodology.
-
-Do not make those choices implicitly. They should be designed explicitly
-before implementation.
+Do not add major technologies, database entities, AI models, scoring changes, or
+deployment architecture implicitly. Update the relevant design document and
+discuss the change first.

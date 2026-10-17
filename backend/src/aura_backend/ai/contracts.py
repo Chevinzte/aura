@@ -18,6 +18,10 @@ class EmbeddingResponseError(AIProviderError):
     """Raised when embedding output is absent or has an invalid vector."""
 
 
+class ImageGenerationError(AIProviderError):
+    """Raised when an image provider cannot generate a usable result."""
+
+
 @dataclass(frozen=True, slots=True)
 class ImageInput:
     """Validated image bytes ready for a vision provider."""
@@ -25,6 +29,14 @@ class ImageInput:
     data: bytes
     mime_type: str
     filename: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratedImage:
+    """Generated image bytes ready for a frontend adapter."""
+
+    data: bytes
+    mime_type: str
 
 
 class VisionAnalyzer(Protocol):
@@ -39,3 +51,10 @@ class EmbeddingProvider(Protocol):
 
     async def embed(self, canonical_text: str) -> SemanticEmbedding:
         """Return an embedding with model and schema metadata."""
+
+
+class ImageGenerator(Protocol):
+    """Generate one image from a backend-owned prompt."""
+
+    async def generate(self, prompt: str) -> GeneratedImage:
+        """Return generated image bytes without persisting them."""

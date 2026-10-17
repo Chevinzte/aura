@@ -27,6 +27,7 @@ class FakeTable:
         self.operation: str | None = None
         self.payload: dict[str, object] | None = None
         self.filters: list[tuple[str, str]] = []
+        self.requested_range: tuple[int, int] | None = None
 
     def insert(self, payload: dict[str, object]) -> FakeTable:
         self.operation = "insert"
@@ -59,6 +60,10 @@ class FakeTable:
         return self
 
     def limit(self, _: int) -> FakeTable:
+        return self
+
+    def range(self, start: int, end: int) -> FakeTable:
+        self.requested_range = (start, end)
         return self
 
     def execute(self) -> SimpleNamespace:
@@ -364,6 +369,7 @@ def test_list_owned_profile_items_uses_caption_or_analyzed_name() -> None:
 
     assert items[0].item_id == item_id
     assert items[0].label == "floral handbag"
+    assert client.tables["items"].requested_range == (0, 9)
     assert items[0].created_at == datetime(2026, 10, 16, 4, tzinfo=UTC)
 
 

@@ -40,8 +40,10 @@ class FakeRepository:
     def find_or_create_user(self, _: int, __: str | None):
         return {"id": str(self.user_id)}
 
-    def list_owned_profile_items(self, **_: object):
-        return self.items
+    def list_owned_profile_items(self, **kwargs: object):
+        offset = int(kwargs.get("offset", 0))
+        limit = int(kwargs.get("limit", len(self.items)))
+        return self.items[offset : offset + limit]
 
     def remove_owned_item(self, *, user_id, item_id):
         assert user_id == self.user_id
@@ -78,6 +80,36 @@ def test_remove_owned_item_rebuilds_profile() -> None:
     assert repository.removed_item_id == item.item_id
     assert result.status == "READY"
     assert result.usable_item_count == 5
+
+
+def test_list_owned_items_returns_page_navigation() -> None:
+    repository = FakeRepository()
+    repository.items.extend(
+        ProfileItemSummary(
+            item_id=uuid4(),
+            label=f"Extra item {index}",
+            created_at=datetime(2026, 11, index + 1, tzinfo=UTC),
+        )
+        for index in range(6)
+    )
+
+    first = make_service(repository).list_items(
+        telegram_user_id=123,
+        display_name="Vinz",
+        page=1,
+    )
+    second = make_service(repository).list_items(
+        telegram_user_id=123,
+        display_name="Vinz",
+        page=2,
+    )
+
+    assert len(first.items) == 10
+    assert first.has_previous is False
+    assert first.has_next is True
+    assert len(second.items) == 2
+    assert second.has_previous is True
+    assert second.has_next is False
 
 
 def test_remove_owned_item_hides_missing_or_unowned_item() -> None:

@@ -4,6 +4,7 @@ from aura_backend.ai.openai_compatible import (
     OpenAICompatibleEmbeddingProvider,
     OpenAICompatibleVisionAnalyzer,
 )
+from aura_backend.ai.openai_images import OpenAIImageGenerator
 from aura_backend.application.item_analysis import ItemAnalysisService
 from aura_backend.application.candidate_items import CandidateItemService
 from aura_backend.application.feedback import FeedbackService
@@ -15,6 +16,7 @@ from aura_backend.application.profiles import (
     ProfileReadService,
     ProfileService,
 )
+from aura_backend.application.suggestions import SuggestionService
 from aura_backend.core.config import get_settings
 from aura_backend.core.supabase import get_supabase_client
 from aura_backend.media.images import ImageValidator
@@ -120,4 +122,15 @@ def get_profile_management_service() -> ProfileManagementService:
             pipeline=pipeline,
         ),
         pipeline=pipeline,
+    )
+
+
+@lru_cache
+def get_suggestion_service() -> SuggestionService:
+    """Build the optional profile-guided image suggestion service."""
+    settings = get_settings()
+    return SuggestionService(
+        repository=AuraRepository(get_supabase_client()),
+        image_generator=OpenAIImageGenerator.from_settings(settings),
+        pipeline=_pipeline(settings),
     )

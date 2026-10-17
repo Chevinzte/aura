@@ -87,7 +87,17 @@ def test_profile_management_requests_use_expected_endpoints() -> None:
         seen.append((request.method, request.url.path))
         assert request.headers["X-Telegram-User-Id"] == "123"
         if request.method == "GET":
-            return httpx.Response(200, json={"items": []})
+            assert request.url.params["page"] == "1"
+            return httpx.Response(
+                200,
+                json={
+                    "items": [],
+                    "page": 1,
+                    "page_size": 10,
+                    "has_previous": False,
+                    "has_next": False,
+                },
+            )
         return httpx.Response(
             200,
             json={
@@ -118,6 +128,37 @@ def test_profile_management_requests_use_expected_endpoints() -> None:
         ("DELETE", f"/v1/profile/items/{item_id}"),
         ("DELETE", "/v1/profile"),
     ]
+
+
+def test_suggestion_request_uses_backend_contract() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/v1/suggestions"
+        assert request.headers["X-Telegram-User-Id"] == "123"
+        body = await request.aread()
+        assert b'"intent":"SAFE_EXTENSION"' in body
+        assert b'"category":"TOPS"' in body
+        assert b'"count":3' in body
+        return httpx.Response(200, json={"suggestions": []})
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+    )
+    result = run(
+        client.generate_suggestions(
+            telegram_user_id=123,
+            display_name="Vinz",
+            intent="SAFE_EXTENSION",
+            category="TOPS",
+            count=3,
+            exclude_labels=[],
+        )
+    )
+    run(client.close())
+
+    assert result == {"suggestions": []}
 
 
 def test_backend_error_detail_is_preserved() -> None:

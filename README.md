@@ -41,15 +41,35 @@ starts the backend and Telegram bot together, and stops both when you press
 ## Telegram Flow
 
 - `/start` displays the available actions.
-- `/add` accepts a sequence of belongings the user likes and builds the profile
-  after at least five usable items, with progress shown after each upload.
+- `/add` accepts one photo or an album of up to ten different belongings and builds
+  the profile after at least five usable items. Every photo must show one clear
+  primary item. Captions are optional because AURA can use the vision-inferred name.
 - `/check` accepts one candidate item and returns an explainable match result.
 - Inline buttons capture taste and purchase-decision feedback.
 - `/profile` shows the current style profile or progress toward the five-item minimum.
-- `/remove` lists recent owned items and removes one after confirmation.
+- `/suggestion` lets the user choose an aesthetic direction and an optional
+  category: Tops, Outerwear, Pants, Accessories, Footwear, or Any Category. It
+  generates three profile-guided wardrobe reference images and can generate two
+  more, up to five per interaction. Images are inspiration only and are not
+  shopping recommendations or profile inputs.
+- `/remove` lists owned items ten per page with Previous and Next controls, then
+  removes one after confirmation.
 - `/resetprofile` clears all owned items from the active profile after confirmation.
 - `/help` displays the command guide and photo tips.
 - `/done` exits the current upload mode.
+
+Telegram albums can contain at most ten photos per media group. If a user selects
+more than ten, Telegram sends multiple groups and AURA processes each group as a
+separate batch. Use one clear primary belonging per photo for the most reliable
+analysis.
+
+## Current Status
+
+The local MVP is implemented and manually verified across `/add`, `/profile`,
+`/check`, feedback buttons, `/suggestion`, `/remove`, and `/resetprofile`.
+Automated backend and Telegram test suites cover the application and client
+flows. Production deployment and Telegram-to-backend authentication remain
+future work; see `docs/PROJECT_CONTEXT.md` for the complete status and roadmap.
 
 The bot refreshes its Telegram command menu automatically when it starts.
 

@@ -102,11 +102,13 @@ class AuraBackendClient:
         *,
         telegram_user_id: int,
         display_name: str | None,
+        page: int = 1,
     ) -> dict[str, Any]:
         return await self._request(
             "GET",
             "/v1/profile/items",
             headers=self._identity_headers(telegram_user_id, display_name),
+            params={"page": page},
         )
 
     async def remove_profile_item(
@@ -132,6 +134,28 @@ class AuraBackendClient:
             "DELETE",
             "/v1/profile",
             headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
+    async def generate_suggestions(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        intent: str,
+        category: str,
+        count: int,
+        exclude_labels: list[str],
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v1/suggestions",
+            headers=self._identity_headers(telegram_user_id, display_name),
+            json={
+                "intent": intent,
+                "category": category,
+                "count": count,
+                "exclude_labels": exclude_labels,
+            },
         )
 
     async def _upload_item(

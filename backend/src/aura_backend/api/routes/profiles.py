@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
 
 from aura_backend.api.dependencies import (
@@ -50,6 +50,10 @@ class ProfileItemResponse(BaseModel):
 
 class ProfileItemsResponse(BaseModel):
     items: list[ProfileItemResponse]
+    page: int
+    page_size: int
+    has_previous: bool
+    has_next: bool
 
 
 class ProfileMutationResponse(BaseModel):
@@ -104,12 +108,14 @@ def list_profile_items(
     display_name: Annotated[
         str | None, Header(alias="X-Telegram-Display-Name", max_length=200)
     ] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> ProfileItemsResponse:
     """List recent owned items that can be removed from the profile."""
     try:
-        items = service.list_items(
+        result = service.list_items(
             telegram_user_id=telegram_user_id,
             display_name=display_name,
+            page=page,
         )
     except ProfileManagementPersistenceError as error:
         raise HTTPException(
@@ -117,7 +123,11 @@ def list_profile_items(
             "PROFILE_MANAGEMENT_UNAVAILABLE",
         ) from error
     return ProfileItemsResponse(
-        items=[ProfileItemResponse(**asdict(item)) for item in items]
+        items=[ProfileItemResponse(**asdict(item)) for item in result.items],
+        page=result.page,
+        page_size=result.page_size,
+        has_previous=result.has_previous,
+        has_next=result.has_next,
     )
 
 

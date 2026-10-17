@@ -502,6 +502,7 @@ build_embedding(features) -> SemanticEmbedding
 build_profile(owned_items) -> AestheticProfileV1
 compare_item(candidate, profile) -> MatchResultV1
 explain_match(match_result) -> ExplanationV1
+generate_reference_image(prompt) -> GeneratedImage
 ```
 
 FastAPI application services orchestrate persistence and these operations.
@@ -514,6 +515,36 @@ collection progress, the user's display name, leading visual preferences, the
 generated summary, and the profile generation time. It must not expose feature
 weights, embeddings, internal identifiers, or model metadata. Frontends may
 format these fields but must not independently derive profile rankings.
+
+## Profile-Guided Reference Images
+
+Wardrobe suggestions are a separate optional branch after profile aggregation;
+they do not modify the accepted item-analysis, embedding, profile, or matching
+pipeline.
+
+```text
+Active AestheticProfileV1 + owned item types + user intent
+  -> deterministic suggestion planning
+  -> constrained single-item image prompt
+  -> provider-neutral image generation
+  -> transient backend response
+  -> Telegram photo
+```
+
+Supported intents are safe extension, intentional contrast, and surprise. A
+second input optionally restricts planning to Tops, Outerwear, Pants,
+Accessories, or Footwear; Any Category preserves the unrestricted behavior. The
+planner uses the whole active profile rather than an aesthetic label alone and
+avoids owned item types where practical. Prompts require one isolated,
+product-style item with no person, outfit, logo, brand, text, watermark, or
+retailer claim.
+
+The initial Telegram action requests three images and may request two more, with
+a maximum of five per interaction. Each small batch is generated concurrently
+while individual provider failures can still return partial success. AURA does
+not persist generated images, create item records from them, or feed them into
+the profile. Provider keys, models, output settings, and timeouts remain
+server-side environment configuration.
 
 ## Evaluation Plan
 

@@ -2,9 +2,14 @@ from aura_telegram.messages import (
     backend_error_message,
     candidate_message,
     help_message,
+    owned_batch_message,
     owned_item_message,
+    owned_item_name,
     profile_mutation_message,
     profile_message,
+    suggestion_caption,
+    suggestion_category_message,
+    suggestion_intro_message,
 )
 
 
@@ -24,6 +29,44 @@ def test_owned_item_message_includes_collection_progress() -> None:
     )
 
     assert "Progress: 3/5 usable items" in message
+
+
+def test_owned_item_name_prefers_caption_then_vision_name() -> None:
+    payload = {
+        "features": {
+            "itemName": "vision-inferred shirt",
+            "itemType": {"value": "shirt"},
+        }
+    }
+
+    assert owned_item_name(payload, "My favourite top") == "My favourite top"
+    assert owned_item_name(payload) == "vision-inferred shirt"
+    assert "vision-inferred shirt" in owned_item_message(payload)
+
+
+def test_owned_batch_message_summarizes_partial_success() -> None:
+    message = owned_batch_message(
+        successful_items=[(1, "White shirt"), (2, "Black trousers")],
+        failed_items=[(3, "That image was unusable.")],
+        skipped_count=1,
+        latest_payload={"usable_item_count": 4, "minimum_item_count": 5},
+    )
+
+    assert "Added: 2/3" in message
+    assert "1. White shirt" in message
+    assert "2. Black trousers" in message
+    assert "Could not add: 1" in message
+    assert "Item 3: That image was unusable." in message
+    assert "beyond the ten-photo batch limit" in message
+    assert "Profile progress: 4/5" in message
+
+
+def test_help_message_explains_batch_size_and_optional_captions() -> None:
+    message = help_message()
+
+    assert "up to ten different items" in message
+    assert "Captions are optional" in message
+    assert "item name identified from the image" in message
 
 
 def test_candidate_message_uses_backend_explanation_verbatim() -> None:
@@ -67,12 +110,36 @@ def test_profile_message_formats_ready_profile_with_headers() -> None:
     )
 
     assert message.startswith("Hello Vinz, this is your style profile")
-    assert "\n\nColours: Cream, Black\n\n" in message
-    assert "Style Traits: Minimal, Casual" in message
-    assert "Patterns & Materials: Plain, Cotton" in message
-    assert "Shape & Details: Clean Lined, Minimal Detail" in message
-    assert "Style Influences: Quiet Luxury" in message
-    assert "Style Summary:" in message
+    assert "\n\n<b>Colours:</b> Cream, Black\n\n" in message
+    assert "<b>Style Traits:</b> Minimal, Casual" in message
+    assert "<b>Patterns &amp; Materials:</b> Plain, Cotton" in message
+    assert "<b>Shape &amp; Details:</b> Clean Lined, Minimal Detail" in message
+    assert "<b>Style Influences:</b> Quiet Luxury" in message
+    assert "<b>Style Summary:</b>" in message
+
+
+def test_profile_message_escapes_dynamic_html() -> None:
+    message = profile_message(
+        {
+            "status": "READY",
+            "display_name": "Vinz <Admin>",
+            "profile": {
+                "colours": ["black & white"],
+                "style_traits": [],
+                "patterns": [],
+                "materials": [],
+                "textures": [],
+                "shape_traits": [],
+                "decorative_details": [],
+                "style_influences": [],
+                "summary": "Clean <minimal> styling.",
+            },
+        }
+    )
+
+    assert "Hello Vinz &lt;Admin&gt;" in message
+    assert "Black &amp; White" in message
+    assert "Clean &lt;minimal&gt; styling." in message
 
 
 def test_profile_message_reports_collecting_progress() -> None:
@@ -95,6 +162,26 @@ def test_help_lists_profile_management_commands() -> None:
 
     assert "/remove" in message
     assert "/resetprofile" in message
+    assert "/suggestion" in message
+    assert "Outerwear" in message
+    assert "Accessories" in message
+    assert "ten per page" in message
+
+
+def test_suggestion_messages_explain_scope_and_escape_html() -> None:
+    intro = suggestion_intro_message()
+    category = suggestion_category_message()
+    caption = suggestion_caption(
+        position=1,
+        label="Bag <One>",
+        rationale="Works with black & white.",
+    )
+
+    assert "three single-item reference images" in intro
+    assert "not shopping recommendations" in intro
+    assert "Any Category" in category
+    assert "Bag &lt;One&gt;" in caption
+    assert "black &amp; white" in caption
 
 
 def test_profile_mutation_message_explains_rebuild_state() -> None:

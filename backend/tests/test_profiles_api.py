@@ -10,6 +10,7 @@ from aura_backend.api.dependencies import (
 )
 from aura_backend.application.profile_management import (
     ProfileItemNotFound,
+    ProfileItemPage,
     ProfileItemSummary,
     ProfileMutationResult,
 )
@@ -44,13 +45,19 @@ class FakeProfileManagementService:
         self.item_id = uuid4()
 
     def list_items(self, **_: object):
-        return [
-            ProfileItemSummary(
-                item_id=self.item_id,
-                label="Favorite bag",
-                created_at=datetime(2026, 10, 16, tzinfo=UTC),
-            )
-        ]
+        return ProfileItemPage(
+            items=[
+                ProfileItemSummary(
+                    item_id=self.item_id,
+                    label="Favorite bag",
+                    created_at=datetime(2026, 10, 16, tzinfo=UTC),
+                )
+            ],
+            page=1,
+            page_size=10,
+            has_previous=False,
+            has_next=True,
+        )
 
     def remove_item(self, **_: object):
         return ProfileMutationResult(
@@ -116,6 +123,7 @@ def test_profile_management_endpoints_list_remove_and_reset() -> None:
 
     assert listed.status_code == 200
     assert listed.json()["items"][0]["label"] == "Favorite bag"
+    assert listed.json()["has_next"] is True
     assert removed.status_code == 200
     assert removed.json()["usable_item_count"] == 4
     assert reset.status_code == 200

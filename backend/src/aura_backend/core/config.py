@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import AnyHttpUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -45,6 +46,33 @@ class Settings(BaseSettings):
         default=256,
         validation_alias="AURA_MIN_IMAGE_DIMENSION",
         ge=1,
+    )
+    openai_image_base_url: AnyHttpUrl = Field(
+        default="https://api.openai.com/v1",
+        validation_alias="OPENAI_IMAGE_BASE_URL",
+    )
+    openai_image_api_key: str | None = Field(
+        default=None,
+        validation_alias="OPENAI_IMAGE_API_KEY",
+    )
+    openai_image_model: str = Field(
+        default="gpt-image-2.5-flare",
+        validation_alias="OPENAI_IMAGE_MODEL",
+    )
+    openai_image_timeout_seconds: float = Field(
+        default=300.0,
+        validation_alias="OPENAI_IMAGE_TIMEOUT_SECONDS",
+        gt=0,
+        le=600,
+    )
+    openai_image_quality: Literal["low", "medium", "high"] = Field(
+        default="low",
+        validation_alias="OPENAI_IMAGE_QUALITY",
+    )
+    openai_image_size: str = Field(
+        default="1024x1024",
+        validation_alias="OPENAI_IMAGE_SIZE",
+        pattern=r"^\d+x\d+$",
     )
 
 

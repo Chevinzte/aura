@@ -362,6 +362,7 @@ class AuraRepository:
         user_id: UUID,
         pipeline: FeaturePipelineVersion,
         limit: int,
+        offset: int = 0,
     ) -> list[ProfileItemSummary]:
         from aura_backend.application.profile_management import ProfileItemSummary
 
@@ -384,7 +385,7 @@ class AuraRepository:
                 str(pipeline.feature_schema_version),
             )
             .order("created_at", desc=True)
-            .limit(limit)
+            .range(offset, offset + limit - 1)
             .execute()
         )
         if not isinstance(response.data, list):

@@ -33,6 +33,15 @@ class ProfileItemSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class ProfileItemPage:
+    items: list[ProfileItemSummary]
+    page: int
+    page_size: int
+    has_previous: bool
+    has_next: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileMutationResult:
     status: str
     usable_item_count: int
@@ -50,6 +59,7 @@ class ProfileManagementRepository(Protocol):
         user_id: UUID,
         pipeline: FeaturePipelineVersion,
         limit: int,
+        offset: int = 0,
     ) -> list[ProfileItemSummary]: ...
 
     def remove_owned_item(self, *, user_id: UUID, item_id: UUID) -> None: ...
@@ -76,19 +86,33 @@ class ProfileManagementService:
         *,
         telegram_user_id: int,
         display_name: str | None,
-        limit: int = 10,
-    ) -> list[ProfileItemSummary]:
+        page: int = 1,
+        page_size: int = 10,
+    ) -> ProfileItemPage:
+        if page < 1:
+            raise ValueError("page must be at least one")
+        if not 1 <= page_size <= 10:
+            raise ValueError("page_size must be between one and ten")
         user_id = self._resolve_user(telegram_user_id, display_name)
+        offset = (page - 1) * page_size
         try:
-            return self._repository.list_owned_profile_items(
+            items = self._repository.list_owned_profile_items(
                 user_id=user_id,
                 pipeline=self._pipeline,
-                limit=limit,
+                limit=page_size + 1,
+                offset=offset,
             )
         except Exception as error:
             raise ProfileManagementPersistenceError(
                 "Could not list owned profile items"
             ) from error
+        return ProfileItemPage(
+            items=items[:page_size],
+            page=page,
+            page_size=page_size,
+            has_previous=page > 1,
+            has_next=len(items) > page_size,
+        )
 
     def remove_item(
         self,
@@ -103,6 +127,7 @@ class ProfileManagementService:
                 user_id=user_id,
                 pipeline=self._pipeline,
                 limit=100,
+                offset=0,
             )
             if not any(item.item_id == item_id for item in items):
                 raise ProfileItemNotFound("Owned item does not exist")
