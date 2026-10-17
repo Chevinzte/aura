@@ -4,6 +4,10 @@
 
 AURA's local MVP is implemented.
 
+Release completion, remaining V1 production work, and the V2 backlog are tracked
+in `docs/ROADMAP.md`. That file is the durable handoff when chat history is not
+available.
+
 The current system can:
 
 - collect belongings a user confirms they like;
@@ -366,14 +370,19 @@ Do not initially build:
 
 ## Current Priorities
 
-The local MVP feature set is complete. Remaining work should prioritize:
+The local MVP feature set and V2.1-V2.2 product features are complete. Remaining
+V1 production work should prioritize:
 
 1. authenticating Telegram-to-backend requests before public deployment;
 2. selecting deployment providers for the FastAPI service and Telegram worker;
-3. configuring production secrets, monitoring, rate limits, and backups;
+3. configuring production secrets, monitoring, rate limits, backups, and cost
+   controls;
 4. evaluating classification and explanation quality on approximately 30-50
    representative owned and candidate images;
 5. testing onboarding with real users before expanding the feature set.
+
+The detailed checklists, completed V2 scope, deferred learning work, and accepted
+session decisions are maintained in `docs/ROADMAP.md`.
 
 Do not add major technologies, database entities, AI models, scoring changes, or
 deployment architecture implicitly. Update the relevant design document and

@@ -82,7 +82,8 @@ item-specific `/check` explanations. V2.2 adds a private wardrobe browser and
 confirmed, guided corrections to owned-item analysis.
 Automated backend and Telegram test suites cover the application and client
 flows. Production deployment and Telegram-to-backend authentication remain
-future work; see `docs/PROJECT_CONTEXT.md` for the complete status and roadmap.
+future work; see `docs/PROJECT_CONTEXT.md` for the architecture and
+`docs/ROADMAP.md` for completed work and remaining tasks.
 
 The bot refreshes its Telegram command menu automatically when it starts.
 
