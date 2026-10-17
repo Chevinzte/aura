@@ -97,6 +97,32 @@ class AuraBackendClient:
             headers=self._identity_headers(telegram_user_id, display_name),
         )
 
+    async def get_preferences(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            "/v1/preferences",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
+    async def update_fashion_presentation(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        fashion_presentation: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "PUT",
+            "/v1/preferences/fashion-presentation",
+            headers=self._identity_headers(telegram_user_id, display_name),
+            json={"fashion_presentation": fashion_presentation},
+        )
+
     async def list_profile_items(
         self,
         *,

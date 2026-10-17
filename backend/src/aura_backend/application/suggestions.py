@@ -8,6 +8,10 @@ from uuid import UUID
 
 from aura_backend.ai.contracts import GeneratedImage, ImageGenerationError, ImageGenerator
 from aura_backend.application.matching import ActiveProfile
+from aura_backend.application.preferences import (
+    FashionPresentation,
+    parse_fashion_presentation,
+)
 from aura_backend.application.profiles import ProfileInput
 from aura_backend.domain.models import AestheticProfileV1, WeightedColour, WeightedFeature
 from aura_backend.repositories.supabase import FeaturePipelineVersion
@@ -83,6 +87,7 @@ class SuggestionService:
     _catalog = (
         ("Relaxed cotton shirt", "shirt", SuggestionCategory.TOPS),
         ("Fine-knit top", "knit top", SuggestionCategory.TOPS),
+        ("Clean button-up shirt", "button-up shirt", SuggestionCategory.TOPS),
         ("Clean-lined blouse", "blouse", SuggestionCategory.TOPS),
         ("Ribbed long-sleeve top", "long-sleeve top", SuggestionCategory.TOPS),
         ("Minimal polo shirt", "polo shirt", SuggestionCategory.TOPS),
@@ -103,6 +108,7 @@ class SuggestionService:
         ("Sculptural everyday earrings", "earrings", SuggestionCategory.ACCESSORIES),
         ("Low-profile sneakers", "sneakers", SuggestionCategory.FOOTWEAR),
         ("Polished loafers", "loafers", SuggestionCategory.FOOTWEAR),
+        ("Polished Derby shoes", "Derby shoes", SuggestionCategory.FOOTWEAR),
         ("Clean ankle boots", "ankle boots", SuggestionCategory.FOOTWEAR),
         ("Minimal flat shoes", "flat shoes", SuggestionCategory.FOOTWEAR),
         ("Refined sandals", "sandals", SuggestionCategory.FOOTWEAR),
@@ -134,6 +140,10 @@ class SuggestionService:
         try:
             user = self._repository.find_or_create_user(telegram_user_id, display_name)
             user_id = UUID(str(user["id"]))
+            fashion_presentation = (
+                parse_fashion_presentation(user.get("fashion_presentation"))
+                or FashionPresentation.NO_PREFERENCE
+            )
             active_profile = self._repository.get_active_profile(
                 user_id=user_id,
                 pipeline=self._pipeline,
@@ -154,7 +164,9 @@ class SuggestionService:
             category=category,
             count=count,
             exclude_labels=exclude_labels or [],
+            fashion_presentation=fashion_presentation,
         )
+
         async def generate_plan(plan: _SuggestionPlan) -> WardrobeSuggestion | None:
             try:
                 image = await self._image_generator.generate(plan.prompt)
@@ -185,13 +197,15 @@ class SuggestionService:
         category: SuggestionCategory,
         count: int,
         exclude_labels: list[str],
+        fashion_presentation: FashionPresentation,
     ) -> list[_SuggestionPlan]:
         excluded = {_normalize(value) for value in exclude_labels}
         owned_types = {_normalize(item.features.item_type.value) for item in inputs}
         category_catalog = [
             item
             for item in self._catalog
-            if category == SuggestionCategory.ANY or item[2] == category
+            if (category == SuggestionCategory.ANY or item[2] == category)
+            and _supports_presentation(item[0], fashion_presentation)
         ]
         rotation = {
             SuggestionIntent.SAFE_EXTENSION: 0,
@@ -219,6 +233,7 @@ class SuggestionService:
                 label=label,
                 item_type=item_type,
                 category=item_category,
+                fashion_presentation=fashion_presentation,
             )
             for label, item_type, item_category in available[:count]
         ]
@@ -231,6 +246,7 @@ class SuggestionService:
         label: str,
         item_type: str,
         category: SuggestionCategory,
+        fashion_presentation: FashionPresentation,
     ) -> _SuggestionPlan:
         colours = _values(profile.colours, "name")
         styles = _values(profile.style_traits)
@@ -279,6 +295,7 @@ class SuggestionService:
         )
         prompt = (
             f"Square 1:1 clean studio product photograph of exactly one {item_type}. "
+            f"{_presentation_prompt(fashion_presentation)}"
             f"Aesthetic profile: {visual_profile}. {direction} "
             "The item must be realistic, wearable, centered, and fully visible on a neutral "
             "light-gray seamless background with soft diffused lighting. Show one item only. "
@@ -333,3 +350,36 @@ def _contrast_colour(profile_colours: list[str]) -> str:
         ),
         "contrasting accent colour",
     )
+
+
+def _supports_presentation(
+    label: str,
+    fashion_presentation: FashionPresentation,
+) -> bool:
+    exclusions = {
+        FashionPresentation.MENSWEAR: {"Clean-lined blouse", "Minimal flat shoes"},
+        FashionPresentation.GENDER_NEUTRAL: {
+            "Clean-lined blouse",
+            "Minimal flat shoes",
+        },
+        FashionPresentation.WOMENSWEAR: {"Polished Derby shoes"},
+        FashionPresentation.NO_PREFERENCE: set(),
+    }
+    return label not in exclusions[fashion_presentation]
+
+
+def _presentation_prompt(fashion_presentation: FashionPresentation) -> str:
+    instructions = {
+        FashionPresentation.MENSWEAR: (
+            "Design this specifically for a menswear wardrobe and avoid "
+            "womenswear-coded garment cuts. "
+        ),
+        FashionPresentation.WOMENSWEAR: (
+            "Design this specifically for a womenswear wardrobe. "
+        ),
+        FashionPresentation.GENDER_NEUTRAL: (
+            "Use a gender-neutral, versatile fashion presentation. "
+        ),
+        FashionPresentation.NO_PREFERENCE: "",
+    }
+    return instructions[fashion_presentation]

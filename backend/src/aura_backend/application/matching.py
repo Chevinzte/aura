@@ -58,7 +58,7 @@ class CandidateMatcher:
     """Compare candidate evidence with one immutable profile snapshot."""
 
     scoring_version = 1
-    explanation_version = 3
+    explanation_version = 4
 
     def __init__(self, config: MatchingConfigV1 | None = None) -> None:
         self._config = config or MatchingConfigV1()
@@ -117,11 +117,13 @@ class CandidateMatcher:
         matching_evidence, contrasting_evidence = self._evidence(
             components,
             classification,
+            candidate_features.item_name,
         )
         explanation = self._explanation(
             classification,
             matching_evidence,
             contrasting_evidence,
+            candidate_features.item_name,
         )
         return MatchResultV1(
             candidate_item_id=candidate_item_id,
@@ -332,6 +334,7 @@ class CandidateMatcher:
         self,
         components: list[_Component],
         classification: MatchClassification,
+        candidate_name: str,
     ) -> tuple[list[MatchEvidence], list[MatchEvidence]]:
         matching: list[MatchEvidence] = []
         contrasting: list[MatchEvidence] = []
@@ -344,9 +347,21 @@ class CandidateMatcher:
         )
         for component in ordered_components:
             if component.score >= 0.60 and component.matching_values:
-                matching.append(self._make_evidence(component, contrast=False))
+                matching.append(
+                    self._make_evidence(
+                        component,
+                        contrast=False,
+                        candidate_name=candidate_name,
+                    )
+                )
             if component.score <= 0.35 and component.contrasting_values:
-                contrasting.append(self._make_evidence(component, contrast=True))
+                contrasting.append(
+                    self._make_evidence(
+                        component,
+                        contrast=True,
+                        candidate_name=candidate_name,
+                    )
+                )
         if classification == MatchClassification.WEAK_FIT and not contrasting:
             principal_components = [
                 component
@@ -355,10 +370,21 @@ class CandidateMatcher:
             ]
             if principal_components:
                 weakest = min(principal_components, key=lambda value: value.score)
-                contrasting.append(self._make_limited_evidence(weakest))
+                contrasting.append(
+                    self._make_limited_evidence(
+                        weakest,
+                        candidate_name=candidate_name,
+                    )
+                )
         return matching[:2], contrasting[:1]
 
-    def _make_evidence(self, component: _Component, *, contrast: bool) -> MatchEvidence:
+    def _make_evidence(
+        self,
+        component: _Component,
+        *,
+        contrast: bool,
+        candidate_name: str,
+    ) -> MatchEvidence:
         candidate_values = (
             component.contrasting_values if contrast else component.matching_values
         )[:2]
@@ -366,36 +392,47 @@ class CandidateMatcher:
         candidate_text = self._natural_list(
             [self._display(value) for value in candidate_values]
         )
+        subject = self._candidate_subject(candidate_name)
         if component.dimension == MatchDimension.SEMANTIC_EMBEDDING:
-            statement = "Its overall visual character is similar to your profile."
+            statement = f"{subject}'s overall visual character is consistent with your profile."
         elif contrast:
-            is_plural = len(candidate_values) > 1 and component.dimension != MatchDimension.COLOUR
-            dimension_text = {
-                MatchDimension.COLOUR: "palette",
-                MatchDimension.STYLE: "style traits" if is_plural else "style trait",
+            statement = {
+                MatchDimension.COLOUR: (
+                    f"{subject} uses a {candidate_text} palette that introduces a clear "
+                    "colour contrast with your profile."
+                ),
+                MatchDimension.STYLE: (
+                    f"{subject} carries {candidate_text} styling that differs from the "
+                    "traits established in your profile."
+                ),
                 MatchDimension.PATTERN_MATERIAL: (
-                    "patterns or materials" if is_plural else "pattern or material"
+                    f"The {candidate_text} pattern or material details in {subject.lower()} "
+                    "contrast with those represented in your profile."
                 ),
                 MatchDimension.SHAPE_DETAIL: (
-                    "shape or detail traits" if is_plural else "shape or detail trait"
+                    f"The {candidate_text} shape or detail traits in {subject.lower()} "
+                    "contrast with your profile."
                 ),
             }[component.dimension]
-            verb = "differ" if is_plural else "differs"
-            statement = f"Its {candidate_text} {dimension_text} {verb} from your profile."
         else:
-            is_plural = len(candidate_values) > 1 and component.dimension != MatchDimension.COLOUR
-            dimension_text = {
-                MatchDimension.COLOUR: "palette",
-                MatchDimension.STYLE: "style traits" if is_plural else "style trait",
+            statement = {
+                MatchDimension.COLOUR: (
+                    f"{subject} uses a {candidate_text} palette that is consistent with "
+                    "colours in your profile."
+                ),
+                MatchDimension.STYLE: (
+                    f"{subject} carries {candidate_text} styling that also appears in "
+                    "your profile."
+                ),
                 MatchDimension.PATTERN_MATERIAL: (
-                    "patterns or materials" if is_plural else "pattern or material"
+                    f"The {candidate_text} pattern or material details in {subject.lower()} "
+                    "also appear in your profile."
                 ),
                 MatchDimension.SHAPE_DETAIL: (
-                    "shape or detail traits" if is_plural else "shape or detail trait"
+                    f"The {candidate_text} shape or detail traits in {subject.lower()} "
+                    "also appear in your profile."
                 ),
             }[component.dimension]
-            verb = "appear" if is_plural else "appears"
-            statement = f"Its {candidate_text} {dimension_text} also {verb} in your profile."
         return MatchEvidence(
             dimension=component.dimension,
             candidate_values=candidate_values,
@@ -404,15 +441,23 @@ class CandidateMatcher:
             confidence=component.confidence,
         )
 
-    def _make_limited_evidence(self, component: _Component) -> MatchEvidence:
+    def _make_limited_evidence(
+        self,
+        component: _Component,
+        *,
+        candidate_name: str,
+    ) -> MatchEvidence:
         candidate_values = (component.contrasting_values or component.candidate_values)[:2]
-        dimension_text, verb = {
-            MatchDimension.COLOUR: ("palette", "has"),
-            MatchDimension.STYLE: ("style traits", "have"),
-            MatchDimension.PATTERN_MATERIAL: ("patterns and materials", "have"),
-            MatchDimension.SHAPE_DETAIL: ("shape and detail traits", "have"),
+        dimension_text = {
+            MatchDimension.COLOUR: "palette",
+            MatchDimension.STYLE: "style traits",
+            MatchDimension.PATTERN_MATERIAL: "patterns and materials",
+            MatchDimension.SHAPE_DETAIL: "shape and detail traits",
         }[component.dimension]
-        statement = f"Its {dimension_text} {verb} limited overlap with your profile."
+        statement = (
+            f"{self._candidate_subject(candidate_name)} has limited overlap with your "
+            f"profile in its {dimension_text}."
+        )
         return MatchEvidence(
             dimension=component.dimension,
             candidate_values=candidate_values,
@@ -426,6 +471,7 @@ class CandidateMatcher:
         classification: MatchClassification,
         matching: list[MatchEvidence],
         contrasting: list[MatchEvidence],
+        candidate_name: str,
     ) -> str:
         labels = {
             MatchClassification.STRONG_FIT: "Strong Fit",
@@ -434,17 +480,22 @@ class CandidateMatcher:
             MatchClassification.WEAK_FIT: "Weak Fit",
             MatchClassification.UNCERTAIN: "Uncertain",
         }
+        subject = self._candidate_subject(candidate_name)
         qualifier = "Based on your uploaded items, this is subjective guidance rather than a rule."
         if classification == MatchClassification.UNCERTAIN:
-            matching_text = "There is not enough confident evidence to identify a reliable match."
-            contrasting_text = "There is not enough confident evidence to identify a reliable contrast."
+            matching_text = (
+                f"AURA could not identify enough reliable shared features for {subject.lower()}."
+            )
+            contrasting_text = (
+                "The available image evidence is also insufficient to identify a reliable contrast."
+            )
         else:
             matching_text = " ".join(
                 evidence.statement for evidence in matching[:2]
-            ) or "No strong matching evidence was identified."
+            ) or f"No strong shared feature was identified for {subject.lower()}."
             contrasting_text = " ".join(
                 evidence.statement for evidence in contrasting[:1]
-            ) or "No major contrasting feature was identified."
+            ) or self._no_contrast_text(classification, subject)
             if classification == MatchClassification.WEAK_FIT:
                 contrasting_text = (
                     f"{contrasting_text} Overall, the similarities are limited "
@@ -503,6 +554,28 @@ class CandidateMatcher:
 
     def _display(self, value: str) -> str:
         return value.replace("_", " ")
+
+    def _candidate_subject(self, candidate_name: str) -> str:
+        name = " ".join(self._display(candidate_name).strip().split())
+        if not name:
+            return "This item"
+        if name.lower().startswith(("this ", "the ")):
+            return name[0].upper() + name[1:]
+        return f"This {name}"
+
+    def _no_contrast_text(
+        self,
+        classification: MatchClassification,
+        subject: str,
+    ) -> str:
+        if classification == MatchClassification.STRONG_FIT:
+            return f"No major contrast stands out; {subject.lower()} remains consistent with your profile."
+        if classification == MatchClassification.MODERATE_FIT:
+            return (
+                "No single major contrast stands out, although the match is not consistent "
+                "across every visual feature."
+            )
+        return f"No major contrasting feature was identified for {subject.lower()}."
 
     def _natural_list(self, values: list[str]) -> str:
         if len(values) == 1:

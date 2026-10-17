@@ -1,6 +1,8 @@
 from aura_telegram.messages import (
     backend_error_message,
     candidate_message,
+    fashion_preference_message,
+    fashion_preference_saved_message,
     help_message,
     owned_batch_message,
     owned_item_message,
@@ -9,6 +11,8 @@ from aura_telegram.messages import (
     profile_message,
     suggestion_caption,
     suggestion_category_message,
+    suggestion_controls_message,
+    suggestion_finished_message,
     suggestion_intro_message,
 )
 
@@ -166,10 +170,11 @@ def test_help_lists_profile_management_commands() -> None:
     assert "Outerwear" in message
     assert "Accessories" in message
     assert "ten per page" in message
+    assert "/settings" in message
 
 
 def test_suggestion_messages_explain_scope_and_escape_html() -> None:
-    intro = suggestion_intro_message()
+    intro = suggestion_intro_message("MENSWEAR")
     category = suggestion_category_message()
     caption = suggestion_caption(
         position=1,
@@ -178,10 +183,28 @@ def test_suggestion_messages_explain_scope_and_escape_html() -> None:
     )
 
     assert "three single-item reference images" in intro
+    assert "Fashion preference: Menswear" in intro
     assert "not shopping recommendations" in intro
     assert "Any Category" in category
     assert "Bag &lt;One&gt;" in caption
     assert "black &amp; white" in caption
+
+
+def test_suggestion_control_messages_explain_next_action() -> None:
+    controls = suggestion_controls_message(generated_count=3, maximum_count=5)
+
+    assert "Generated 3 of 5" in controls
+    assert "remain in this chat" in controls
+    assert "/suggestion" in suggestion_finished_message()
+
+
+def test_fashion_preference_messages_explain_scope() -> None:
+    prompt = fashion_preference_message(None, first_time=True)
+    saved = fashion_preference_saved_message("GENDER_NEUTRAL")
+
+    assert "does not change your style profile" in prompt
+    assert "Gender-neutral" in saved
+    assert "/check results" in saved
 
 
 def test_profile_mutation_message_explains_rebuild_state() -> None:

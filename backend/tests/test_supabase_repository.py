@@ -18,6 +18,7 @@ from aura_backend.domain.models import (
     MatchResultV1,
     SemanticEmbedding,
 )
+from aura_backend.application.preferences import FashionPresentation
 from aura_backend.repositories.supabase import AuraRepository, FeaturePipelineVersion
 
 
@@ -125,6 +126,25 @@ def test_pending_feature_analysis_persists_pipeline_versions() -> None:
     assert table.payload is not None
     assert table.payload["item_id"] == str(item_id)
     assert table.payload["embedding_dimensions"] == 1536
+
+
+def test_update_user_fashion_presentation_updates_owned_user() -> None:
+    client = FakeSupabaseClient()
+    user_id = uuid4()
+    client.tables["users"] = FakeTable(
+        [{"id": str(user_id), "fashion_presentation": "MENSWEAR"}]
+    )
+    repository = AuraRepository(client)  # type: ignore[arg-type]
+
+    updated = repository.update_user_fashion_presentation(
+        user_id=user_id,
+        fashion_presentation=FashionPresentation.MENSWEAR,
+    )
+
+    table = client.tables["users"]
+    assert table.payload == {"fashion_presentation": "MENSWEAR"}
+    assert ("id", str(user_id)) in table.filters
+    assert updated["fashion_presentation"] == "MENSWEAR"
 
 
 def test_create_item_with_analysis_uses_atomic_rpc() -> None:

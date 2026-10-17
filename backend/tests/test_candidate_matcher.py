@@ -89,7 +89,9 @@ def test_matching_candidate_is_classified_as_strong_fit() -> None:
     assert len(result.matching_evidence) == 2
     assert "subjective guidance" in result.explanation
     assert "feature representation" not in result.explanation
-    assert result.explanation_version == 3
+    assert result.explanation_version == 4
+    assert "This candidate bag" in result.explanation
+    assert "overall feature mix overall feature mix" not in result.explanation
     sections = result.explanation.split("\n\n")
     assert len(sections) == 4
     assert sections[0] == "Classification: Strong Fit"
@@ -128,7 +130,7 @@ def test_multiple_differences_are_not_intentional_contrast() -> None:
     )
 
     assert result.classification == "WEAK_FIT"
-    assert "differs from your profile" in result.explanation
+    assert "contrast with your profile" in result.explanation
     assert "Overall, the similarities are limited" in result.explanation
 
 

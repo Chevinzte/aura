@@ -19,6 +19,7 @@ from aura_backend.domain.models import (
 )
 
 if TYPE_CHECKING:
+    from aura_backend.application.preferences import FashionPresentation
     from aura_backend.application.profile_management import ProfileItemSummary
     from aura_backend.application.profiles import ProfileInput
 
@@ -73,6 +74,20 @@ class AuraRepository:
             .execute()
         )
         return _optional_single_row(response.data, "loading user")
+
+    def update_user_fashion_presentation(
+        self,
+        *,
+        user_id: UUID,
+        fashion_presentation: FashionPresentation,
+    ) -> dict[str, Any]:
+        response = (
+            self._client.table("users")
+            .update({"fashion_presentation": fashion_presentation.value})
+            .eq("id", str(user_id))
+            .execute()
+        )
+        return _require_single_row(response.data, "updating fashion presentation")
 
     def create_item_with_analysis(
         self,

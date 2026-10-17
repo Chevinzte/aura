@@ -17,6 +17,7 @@ from aura_telegram.backend import AuraBackendClient
 from aura_telegram.config import BotSettings, get_bot_settings
 from aura_telegram.handlers import (
     FEEDBACK_PATTERN,
+    PREFERENCE_PATTERN,
     PROFILE_ACTION_PATTERN,
     SUGGESTION_PATTERN,
     add_owned,
@@ -24,11 +25,13 @@ from aura_telegram.handlers import (
     done,
     handle_error,
     handle_feedback,
+    handle_preference_action,
     handle_profile_action,
     handle_suggestion_action,
     handle_photo,
     show_help,
     show_profile,
+    show_settings,
     remove_profile_item,
     request_profile_reset,
     request_suggestions,
@@ -54,6 +57,7 @@ def build_application(settings: BotSettings) -> Application:
                     BotCommand("check", "Check an item against your profile"),
                     BotCommand("profile", "View your style profile"),
                     BotCommand("suggestion", "Build on your style profile"),
+                    BotCommand("settings", "Set suggestion fashion preference"),
                     BotCommand("remove", "Remove one uploaded belonging"),
                     BotCommand("resetprofile", "Clear and restart your profile"),
                     BotCommand("help", "Show the AURA command guide"),
@@ -76,11 +80,15 @@ def build_application(settings: BotSettings) -> Application:
     application.add_handler(CommandHandler("check", check_candidate))
     application.add_handler(CommandHandler("profile", show_profile))
     application.add_handler(CommandHandler("suggestion", request_suggestions))
+    application.add_handler(CommandHandler("settings", show_settings))
     application.add_handler(CommandHandler("remove", remove_profile_item))
     application.add_handler(CommandHandler("resetprofile", request_profile_reset))
     application.add_handler(CommandHandler("help", show_help))
     application.add_handler(CommandHandler("done", done))
     application.add_handler(CallbackQueryHandler(handle_feedback, pattern=FEEDBACK_PATTERN))
+    application.add_handler(
+        CallbackQueryHandler(handle_preference_action, pattern=PREFERENCE_PATTERN)
+    )
     application.add_handler(
         CallbackQueryHandler(handle_profile_action, pattern=PROFILE_ACTION_PATTERN)
     )

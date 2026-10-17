@@ -9,12 +9,14 @@ from aura_telegram.handlers import (
     OWNED_ALBUMS_KEY,
     OWNED_MODE,
     add_owned,
+    handle_preference_action,
     handle_photo,
     handle_profile_action,
     handle_suggestion_action,
     remove_profile_item,
     show_profile,
     request_suggestions,
+    show_settings,
 )
 
 
@@ -284,16 +286,108 @@ def test_remove_profile_item_can_navigate_to_next_page() -> None:
 
 
 def test_request_suggestions_displays_intent_choices() -> None:
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/preferences"
+        return httpx.Response(200, json={"fashion_presentation": "MENSWEAR"})
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
     message = FakeMessage()
-    update = SimpleNamespace(effective_message=message)
-    context = SimpleNamespace(user_data={})
+    update = SimpleNamespace(
+        effective_message=message,
+        effective_user=SimpleNamespace(id=123, first_name="Vinz", username="vinz"),
+    )
+    context = SimpleNamespace(
+        user_data={},
+        bot_data={"backend_client": client},
+    )
 
     run(request_suggestions(update, context))  # type: ignore[arg-type]
+    run(client.close())
 
     keyboard = message.reply_markups[0].inline_keyboard
+    assert "Fashion preference: Menswear" in message.replies[0]
     assert keyboard[0][0].callback_data == "sug:SAFE_EXTENSION"
     assert keyboard[1][0].callback_data == "sug:INTENTIONAL_CONTRAST"
     assert keyboard[2][0].callback_data == "sug:SURPRISE_ME"
+
+
+def test_request_suggestions_prompts_for_unconfigured_preference() -> None:
+    async def backend_handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"fashion_presentation": None})
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    message = FakeMessage()
+    update = SimpleNamespace(
+        effective_message=message,
+        effective_user=SimpleNamespace(id=123, first_name="Vinz", username="vinz"),
+    )
+    context = SimpleNamespace(
+        user_data={},
+        bot_data={"backend_client": client},
+    )
+
+    run(request_suggestions(update, context))  # type: ignore[arg-type]
+    run(client.close())
+
+    keyboard = message.reply_markups[0].inline_keyboard
+    assert "Before generating clothing ideas" in message.replies[0]
+    assert keyboard[0][0].callback_data == "pref:MENSWEAR:suggestion"
+    assert keyboard[1][1].callback_data == "pref:NO_PREFERENCE:suggestion"
+
+
+def test_settings_updates_preference_and_can_continue_to_suggestions() -> None:
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "PUT":
+            return httpx.Response(200, json={"fashion_presentation": "MENSWEAR"})
+        return httpx.Response(200, json={"fashion_presentation": "WOMENSWEAR"})
+
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = "pref:MENSWEAR:suggestion"
+            self.from_user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+            self.edits: list[tuple[str, object]] = []
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+        async def edit_message_text(self, text: str, **kwargs: object) -> None:
+            self.edits.append((text, kwargs.get("reply_markup")))
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    message = FakeMessage()
+    user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+    context = SimpleNamespace(bot_data={"backend_client": client})
+
+    run(
+        show_settings(
+            SimpleNamespace(effective_message=message, effective_user=user),
+            context,
+        )
+    )  # type: ignore[arg-type]
+    query = FakeQuery()
+    run(
+        handle_preference_action(
+            SimpleNamespace(callback_query=query),
+            context,
+        )
+    )  # type: ignore[arg-type]
+    run(client.close())
+
+    assert "Fashion preference: Womenswear" in message.replies[0]
+    assert "Fashion preference: Menswear" in query.edits[0][0]
+    assert query.edits[0][1].inline_keyboard[0][0].callback_data == "sug:SAFE_EXTENSION"
 
 
 def test_suggestion_action_sends_images_and_offers_two_more() -> None:
@@ -321,10 +415,19 @@ def test_suggestion_action_sends_images_and_offers_two_more() -> None:
         def __init__(self) -> None:
             self.photos: list[bytes] = []
             self.captions: list[str] = []
+            self.replies: list[str] = []
+            self.reply_markups: list[object] = []
+            self.events: list[str] = []
 
         async def reply_photo(self, photo, **kwargs: object) -> None:
             self.photos.append(photo.read())
             self.captions.append(str(kwargs.get("caption")))
+            self.events.append("photo")
+
+        async def reply_text(self, text: str, **kwargs: object) -> None:
+            self.replies.append(text)
+            self.reply_markups.append(kwargs.get("reply_markup"))
+            self.events.append("controls")
 
     class FakeQuery:
         def __init__(self) -> None:
@@ -361,5 +464,50 @@ def test_suggestion_action_sends_images_and_offers_two_more() -> None:
     assert "Suggestion 1" in query.message.captions[0]
     assert context.user_data["suggestion_state"]["generated_count"] == 3
     assert context.user_data["suggestion_state"]["category"] == "TOPS"
-    final_markup = query.edits[-1][1]
+    assert query.message.events == ["photo", "photo", "photo", "controls"]
+    assert query.edits[-1][0] == "Generation complete. Your reference images are below."
+    final_markup = query.message.reply_markups[-1]
     assert final_markup.inline_keyboard[0][0].callback_data == "sug:MORE"
+    assert final_markup.inline_keyboard[1][0].callback_data == "sug:FINISH"
+
+
+def test_suggestion_finish_ends_session_and_removes_controls() -> None:
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = "sug:FINISH"
+            self.message = SimpleNamespace()
+            self.from_user = SimpleNamespace(id=123)
+            self.edits: list[tuple[str, object]] = []
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+        async def edit_message_text(self, text: str, **kwargs: object) -> None:
+            self.edits.append((text, kwargs.get("reply_markup")))
+
+    query = FakeQuery()
+    context = SimpleNamespace(
+        user_data={
+            "suggestion_state": {
+                "intent": "SAFE_EXTENSION",
+                "category": "TOPS",
+                "labels": ["Item 1", "Item 2", "Item 3"],
+                "generated_count": 3,
+            }
+        }
+    )
+
+    run(
+        handle_suggestion_action(
+            SimpleNamespace(callback_query=query),
+            context,
+        )
+    )  # type: ignore[arg-type]
+
+    assert "suggestion_state" not in context.user_data
+    assert query.edits == [
+        (
+            "Suggestion session finished. Use /suggestion whenever you want more ideas.",
+            None,
+        )
+    ]

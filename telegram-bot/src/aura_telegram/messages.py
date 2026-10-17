@@ -107,6 +107,8 @@ def help_message() -> str:
         "image when omitted.\n\n"
         "/check — Compare a new item with your current style profile.\n\n"
         "/profile — See what AURA has learned from your uploaded belongings.\n\n"
+        "/settings — Choose whether generated clothing ideas should use menswear, "
+        "womenswear, gender-neutral fashion, or no presentation preference.\n\n"
         "/remove — Browse uploaded belongings ten per page and remove one from your "
         "profile after confirmation.\n\n"
         "/resetprofile — Clear all uploaded belongings and restart your profile.\n\n"
@@ -114,8 +116,10 @@ def help_message() -> str:
     )
 
 
-def suggestion_intro_message() -> str:
+def suggestion_intro_message(fashion_presentation: str | None = None) -> str:
+    preference = fashion_presentation_label(fashion_presentation)
     return (
+        f"Fashion preference: {preference}. Change it anytime with /settings.\n\n"
         "How should AURA build on your style profile?\n\n"
         "Safe Extension stays close to your established preferences.\n\n"
         "Intentional Contrast adds one controlled difference while keeping the item "
@@ -125,6 +129,40 @@ def suggestion_intro_message() -> str:
         "AURA will generate three single-item reference images. You can then request "
         "two more. These are inspiration, not shopping recommendations."
     )
+
+
+def fashion_preference_message(
+    fashion_presentation: str | None,
+    *,
+    first_time: bool = False,
+) -> str:
+    if first_time:
+        return (
+            "Before generating clothing ideas, choose the fashion presentation AURA "
+            "should use. This does not change your style profile or /check results."
+        )
+    return (
+        f"Fashion preference: {fashion_presentation_label(fashion_presentation)}\n\n"
+        "Choose the presentation AURA should use for generated clothing suggestions. "
+        "You can change it at any time."
+    )
+
+
+def fashion_preference_saved_message(fashion_presentation: str) -> str:
+    return (
+        f"Fashion preference saved: {fashion_presentation_label(fashion_presentation)}.\n\n"
+        "AURA will use this for future generated clothing ideas. It does not change "
+        "your style profile or /check results."
+    )
+
+
+def fashion_presentation_label(value: str | None) -> str:
+    return {
+        "MENSWEAR": "Menswear",
+        "WOMENSWEAR": "Womenswear",
+        "GENDER_NEUTRAL": "Gender-neutral",
+        "NO_PREFERENCE": "No preference",
+    }.get(value or "", "Not set")
 
 
 def suggestion_category_message() -> str:
@@ -144,6 +182,19 @@ def suggestion_caption(
         f"<b>Suggestion {position}: {escape(label.strip())}</b>\n\n"
         f"<b>Why:</b> {escape(rationale.strip())}\n\n"
         "AI-generated reference image. It is not a specific product or retailer listing."
+    )
+
+
+def suggestion_controls_message(*, generated_count: int, maximum_count: int) -> str:
+    return (
+        f"Generated {generated_count} of {maximum_count} available references. "
+        "The images remain in this chat."
+    )
+
+
+def suggestion_finished_message() -> str:
+    return (
+        "Suggestion session finished. Use /suggestion whenever you want more ideas."
     )
 
 
@@ -322,6 +373,9 @@ def backend_error_message(code: str) -> str:
         ),
         "SUGGESTION_PROCESSING_UNAVAILABLE": (
             "AURA could not prepare suggestions from your profile right now. Please retry."
+        ),
+        "PREFERENCES_UNAVAILABLE": (
+            "AURA could not load or save your settings right now. Please retry shortly."
         ),
         "IMAGE_GENERATION_FAILED": (
             "AURA could not generate reference images right now. Please retry shortly."

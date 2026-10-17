@@ -381,7 +381,7 @@ A medium overall score alone does not imply intentional contrast. The analysis
 must identify the contrasting dimension and the features that make the rest of
 the item coherent with the profile.
 
-## Explanation V3
+## Explanation V4
 
 MVP explanations are deterministic templates populated only from stored match
 evidence. They do not require another generative-model call.
@@ -393,6 +393,11 @@ limited overlap rather than presenting only positive evidence.
 Version 3 presents every explanation as four labeled sections separated by
 blank lines: Classification, Matching Evidence, Contrasting Evidence, and
 Subjective Qualifier.
+
+Version 4 retains those sections while naming the analyzed item, using
+dimension-specific wording, removing repetitive feature phrases, and explaining
+uncertainty or the absence of a major contrast more directly. It changes only
+the explanation template; scoring version 1 and its classifications are unchanged.
 
 Each explanation contains:
 
@@ -406,9 +411,9 @@ Example:
 ```text
 Classification: Moderate Fit
 
-Matching Evidence: Its cream palette and delicate style trait also appear in your profile.
+Matching Evidence: This navy jacket carries structured styling that also appears in your profile.
 
-Contrasting Evidence: Its navy palette differs from your profile.
+Contrasting Evidence: This navy jacket uses a navy palette that introduces a clear colour contrast with your profile.
 
 Subjective Qualifier: Based on your uploaded items, this is subjective guidance rather than a rule.
 ```
@@ -531,8 +536,11 @@ Active AestheticProfileV1 + owned item types + user intent
   -> Telegram photo
 ```
 
-Supported intents are safe extension, intentional contrast, and surprise. A
-second input optionally restricts planning to Tops, Outerwear, Pants,
+Supported intents are safe extension, intentional contrast, and surprise. An
+optional user-selected fashion presentation constrains clothing ideas to
+Menswear, Womenswear, Gender-neutral, or No preference. It is never inferred and
+does not influence profile aggregation or candidate matching. A second input
+optionally restricts planning to Tops, Outerwear, Pants,
 Accessories, or Footwear; Any Category preserves the unrestricted behavior. The
 planner uses the whole active profile rather than an aesthetic label alone and
 avoids owned item types where practical. Prompts require one isolated,

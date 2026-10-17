@@ -10,6 +10,7 @@ from aura_backend.application.candidate_items import CandidateItemService
 from aura_backend.application.feedback import FeedbackService
 from aura_backend.application.matching import CandidateMatcher
 from aura_backend.application.owned_items import OwnedItemService
+from aura_backend.application.preferences import PreferenceService
 from aura_backend.application.profile_management import ProfileManagementService
 from aura_backend.application.profiles import (
     AestheticProfileBuilder,
@@ -95,6 +96,12 @@ def get_candidate_item_service() -> CandidateItemService:
 def get_feedback_service() -> FeedbackService:
     """Build the feedback service used by frontend adapters."""
     return FeedbackService(AuraRepository(get_supabase_client()))
+
+
+@lru_cache
+def get_preference_service() -> PreferenceService:
+    """Build the service for optional user-controlled personalization."""
+    return PreferenceService(AuraRepository(get_supabase_client()))
 
 
 @lru_cache

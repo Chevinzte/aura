@@ -104,6 +104,7 @@ Represents an AURA user independently of any frontend authentication system.
 | `id` | `uuid` | Primary key |
 | `telegram_user_id` | `bigint` | Required, unique |
 | `display_name` | `text` | Nullable |
+| `fashion_presentation` | `text` | Nullable; `MENSWEAR`, `WOMENSWEAR`, `GENDER_NEUTRAL`, or `NO_PREFERENCE` |
 | `onboarding_complete` | `boolean` | Required, default `false` |
 | `created_at` | `timestamptz` | Required, default `now()` |
 | `updated_at` | `timestamptz` | Required, default `now()` |
@@ -111,6 +112,10 @@ Represents an AURA user independently of any frontend authentication system.
 The Telegram identifier is an external identifier, not the domain primary key.
 Future authentication methods can map to the same UUID without changing item,
 profile, or match relationships.
+
+`fashion_presentation` is explicitly selected by the user and only guides
+generated clothing suggestions. AURA does not infer it from names, images, or
+owned belongings, and it does not alter profile aggregation or candidate scoring.
 
 ### `items`
 

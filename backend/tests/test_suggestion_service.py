@@ -27,12 +27,16 @@ PIPELINE = FeaturePipelineVersion(
 
 
 class FakeRepository:
-    def __init__(self, *, ready: bool = True) -> None:
+    def __init__(self, *, ready: bool = True, presentation: str | None = None) -> None:
         self.user_id = uuid4()
         self.ready = ready
+        self.presentation = presentation
 
-    def find_or_create_user(self, *_: object) -> dict[str, str]:
-        return {"id": str(self.user_id)}
+    def find_or_create_user(self, *_: object) -> dict[str, str | None]:
+        return {
+            "id": str(self.user_id),
+            "fashion_presentation": self.presentation,
+        }
 
     def get_active_profile(self, **_: object):
         if not self.ready:
@@ -92,6 +96,7 @@ def test_suggestion_service_uses_full_profile_and_avoids_owned_type() -> None:
     assert {suggestion.label for suggestion in result.suggestions} <= {
         "Relaxed cotton shirt",
         "Fine-knit top",
+        "Clean button-up shirt",
         "Clean-lined blouse",
         "Ribbed long-sleeve top",
         "Minimal polo shirt",
@@ -101,6 +106,31 @@ def test_suggestion_service_uses_full_profile_and_avoids_owned_type() -> None:
     assert all("cotton" in prompt for prompt in generator.prompts)
     assert all("Show one item only" in prompt for prompt in generator.prompts)
     assert all("No person" in prompt for prompt in generator.prompts)
+
+
+def test_menswear_preference_filters_catalog_and_constrains_prompts() -> None:
+    generator = FakeImageGenerator()
+    service = SuggestionService(
+        repository=FakeRepository(presentation="MENSWEAR"),
+        image_generator=generator,
+        pipeline=PIPELINE,
+    )
+
+    result = run(
+        service.generate(
+            telegram_user_id=123,
+            display_name="Vinz",
+            intent=SuggestionIntent.SAFE_EXTENSION,
+            category=SuggestionCategory.TOPS,
+            count=3,
+        )
+    )
+
+    assert "Clean-lined blouse" not in {
+        suggestion.label for suggestion in result.suggestions
+    }
+    assert all("menswear wardrobe" in prompt for prompt in generator.prompts)
+    assert all("avoid womenswear-coded garment cuts" in prompt for prompt in generator.prompts)
 
 
 def test_suggestion_service_requires_ready_profile() -> None:

@@ -12,7 +12,9 @@ The current system can:
 - compare a candidate item with the active profile;
 - return an explainable, subjective compatibility assessment;
 - capture taste and purchase-decision feedback;
-- display, update, and reset the user's profile through Telegram.
+- display, update, and reset the user's profile through Telegram;
+- apply an optional user-selected fashion presentation to generated suggestions;
+- produce item-specific version 4 match explanations without changing scoring.
 
 The FastAPI backend, Telegram client, Supabase schema, storage integration, AI
 adapters, deterministic profile aggregation, matching logic, and automated tests
@@ -108,6 +110,8 @@ Current commands:
 - `/profile`: display the current profile or collection progress;
 - `/suggestion`: generate non-commercial wardrobe-building reference items from a
   ready profile, with up to five AI-generated images per interaction;
+- `/settings`: choose Menswear, Womenswear, Gender-neutral, or No preference for
+  generated clothing ideas;
 - `/remove`: browse owned items ten per page, then select and confirm removal of one;
 - `/resetprofile`: confirm removal of all owned profile inputs;
 - `/help`: display command and image guidance;
@@ -169,12 +173,22 @@ complete active profile and owned item types to plan distinct single-item ideas
 within that category, then asks a provider-neutral image generator for isolated
 product-style reference images.
 
-The first request generates three references. Telegram may request two more in
-the same interaction, for a maximum of five. Images must show one item only,
+The first request generates three references. Telegram places fresh controls
+below those images so the user can generate two more or finish the session. A
+second batch brings the interaction maximum to five and ends the session. Images
+must show one item only,
 without people, outfits, brands, logos, text, or retailer claims. Suggestions do
 not create owned or candidate items, mutate the profile, or influence matching.
 Generated images are not persisted by AURA; after they are sent, they remain in
 the Telegram conversation under Telegram's normal retention behavior.
+
+Before the first `/suggestion`, AURA asks the user to choose an optional fashion
+presentation: Menswear, Womenswear, Gender-neutral, or No preference. The user
+can change it through `/settings`. This preference is self-reported, is never
+inferred from names or photos, and constrains suggestion catalog choices and
+image prompts. It does not change visual feature extraction, profile aggregation,
+or `/check` scoring. Body type is intentionally deferred until AURA supports
+fit-focused or outfit guidance where that input would provide meaningful value.
 
 ## Item Visual Features V1
 
@@ -243,6 +257,10 @@ Contrasting Evidence: [meaningful contrast or limited-overlap evidence]
 
 Subjective Qualifier: Based on your uploaded items, this is subjective guidance rather than a rule.
 ```
+
+Explanation version 4 names the analyzed item, uses dimension-specific phrasing,
+and provides clearer wording for limited evidence and absent contrasts. Matching
+scores, thresholds, and classification rules remain on scoring version 1.
 
 ## Feedback
 

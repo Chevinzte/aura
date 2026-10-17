@@ -161,6 +161,40 @@ def test_suggestion_request_uses_backend_contract() -> None:
     assert result == {"suggestions": []}
 
 
+def test_preference_requests_use_backend_contract() -> None:
+    seen: list[tuple[str, str]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        assert request.headers["X-Telegram-User-Id"] == "123"
+        if request.method == "PUT":
+            assert b'"fashion_presentation":"MENSWEAR"' in await request.aread()
+            return httpx.Response(200, json={"fashion_presentation": "MENSWEAR"})
+        return httpx.Response(200, json={"fashion_presentation": None})
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(handler),
+    )
+    initial = run(client.get_preferences(telegram_user_id=123, display_name="Vinz"))
+    updated = run(
+        client.update_fashion_presentation(
+            telegram_user_id=123,
+            display_name="Vinz",
+            fashion_presentation="MENSWEAR",
+        )
+    )
+    run(client.close())
+
+    assert initial == {"fashion_presentation": None}
+    assert updated == {"fashion_presentation": "MENSWEAR"}
+    assert seen == [
+        ("GET", "/v1/preferences"),
+        ("PUT", "/v1/preferences/fashion-presentation"),
+    ]
+
+
 def test_backend_error_detail_is_preserved() -> None:
     async def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(409, json={"detail": "PROFILE_NOT_READY"})

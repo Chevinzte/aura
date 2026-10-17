@@ -47,11 +47,15 @@ starts the backend and Telegram bot together, and stops both when you press
 - `/check` accepts one candidate item and returns an explainable match result.
 - Inline buttons capture taste and purchase-decision feedback.
 - `/profile` shows the current style profile or progress toward the five-item minimum.
+- `/settings` stores an optional Menswear, Womenswear, Gender-neutral, or No
+  preference choice for generated clothing ideas. It does not change the style
+  profile or `/check` scoring.
 - `/suggestion` lets the user choose an aesthetic direction and an optional
   category: Tops, Outerwear, Pants, Accessories, Footwear, or Any Category. It
   generates three profile-guided wardrobe reference images and can generate two
-  more, up to five per interaction. Images are inspiration only and are not
-  shopping recommendations or profile inputs.
+  more, up to five per interaction. Controls appear below each generated batch,
+  and the user can finish after the first three. Images are inspiration only and
+  are not shopping recommendations or profile inputs.
 - `/remove` lists owned items ten per page with Previous and Next controls, then
   removes one after confirmation.
 - `/resetprofile` clears all owned items from the active profile after confirmation.
@@ -67,6 +71,8 @@ analysis.
 
 The local MVP is implemented and manually verified across `/add`, `/profile`,
 `/check`, feedback buttons, `/suggestion`, `/remove`, and `/resetprofile`.
+Initial V2 work adds fashion-presentation settings for suggestions and clearer,
+item-specific `/check` explanations.
 Automated backend and Telegram test suites cover the application and client
 flows. Production deployment and Telegram-to-backend authentication remain
 future work; see `docs/PROJECT_CONTEXT.md` for the complete status and roadmap.

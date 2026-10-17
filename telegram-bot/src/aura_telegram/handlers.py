@@ -26,6 +26,8 @@ from aura_telegram.backend import AuraBackendClient, BackendAPIError
 from aura_telegram.messages import (
     backend_error_message,
     candidate_message,
+    fashion_preference_message,
+    fashion_preference_saved_message,
     help_message,
     owned_batch_message,
     owned_item_message,
@@ -34,6 +36,8 @@ from aura_telegram.messages import (
     profile_message,
     suggestion_caption,
     suggestion_category_message,
+    suggestion_controls_message,
+    suggestion_finished_message,
     suggestion_intro_message,
 )
 
@@ -55,8 +59,11 @@ PROFILE_ACTION_PATTERN = re.compile(
     r"rmx|rst:y|rst:n)$"
 )
 SUGGESTION_PATTERN = re.compile(
-    r"^(?:sug:(SAFE_EXTENSION|INTENTIONAL_CONTRAST|SURPRISE_ME|MORE)|"
+    r"^(?:sug:(SAFE_EXTENSION|INTENTIONAL_CONTRAST|SURPRISE_ME|MORE|FINISH)|"
     r"sugc:(ANY|TOPS|OUTERWEAR|PANTS|ACCESSORIES|FOOTWEAR))$"
+)
+PREFERENCE_PATTERN = re.compile(
+    r"^pref:(MENSWEAR|WOMENSWEAR|GENDER_NEUTRAL|NO_PREFERENCE):(suggestion|settings)$"
 )
 
 
@@ -86,7 +93,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ["/add", "/check"],
             ["/profile", "/suggestion"],
             ["/remove", "/resetprofile"],
-            ["/help", "/done"],
+            ["/settings", "/help", "/done"],
         ],
         resize_keyboard=True,
     )
@@ -105,27 +112,129 @@ async def request_suggestions(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     context.user_data.pop(SUGGESTION_STATE_KEY, None)
-    if update.effective_message is None:
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
         return
-    await update.effective_message.reply_text(
-        suggestion_intro_message(),
-        reply_markup=InlineKeyboardMarkup(
+    display_name = user.first_name or user.username or None
+    try:
+        payload = await _backend_client(context).get_preferences(
+            telegram_user_id=user.id,
+            display_name=display_name,
+        )
+    except BackendAPIError as error:
+        await message.reply_text(backend_error_message(error.code))
+        return
+    preference = payload.get("fashion_presentation")
+    if not isinstance(preference, str):
+        await message.reply_text(
+            fashion_preference_message(None, first_time=True),
+            reply_markup=_fashion_preference_keyboard("suggestion"),
+        )
+        return
+    await message.reply_text(
+        suggestion_intro_message(preference),
+        reply_markup=_suggestion_intent_keyboard(),
+    )
+
+
+async def show_settings(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+    try:
+        payload = await _backend_client(context).get_preferences(
+            telegram_user_id=user.id,
+            display_name=user.first_name or user.username or None,
+        )
+    except BackendAPIError as error:
+        await message.reply_text(backend_error_message(error.code))
+        return
+    preference = payload.get("fashion_presentation")
+    await message.reply_text(
+        fashion_preference_message(preference if isinstance(preference, str) else None),
+        reply_markup=_fashion_preference_keyboard("settings"),
+    )
+
+
+async def handle_preference_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    query = update.callback_query
+    if query is None or not isinstance(query.data, str):
+        return
+    match = PREFERENCE_PATTERN.fullmatch(query.data)
+    if match is None:
+        await query.answer("That setting is no longer valid.", show_alert=True)
+        return
+    preference, destination = match.groups()
+    user = query.from_user
+    try:
+        await _backend_client(context).update_fashion_presentation(
+            telegram_user_id=user.id,
+            display_name=user.first_name or user.username or None,
+            fashion_presentation=preference,
+        )
+    except BackendAPIError as error:
+        await query.answer(backend_error_message(error.code), show_alert=True)
+        return
+    await query.answer("Preference saved")
+    if destination == "suggestion":
+        await query.edit_message_text(
+            suggestion_intro_message(preference),
+            reply_markup=_suggestion_intent_keyboard(),
+        )
+        return
+    await query.edit_message_text(
+        fashion_preference_saved_message(preference),
+        reply_markup=_fashion_preference_keyboard("settings"),
+    )
+
+
+def _fashion_preference_keyboard(destination: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
             [
-                [
-                    InlineKeyboardButton(
-                        "Safe Extension",
-                        callback_data="sug:SAFE_EXTENSION",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "Intentional Contrast",
-                        callback_data="sug:INTENTIONAL_CONTRAST",
-                    )
-                ],
-                [InlineKeyboardButton("Surprise Me", callback_data="sug:SURPRISE_ME")],
-            ]
-        ),
+                InlineKeyboardButton(
+                    "Menswear",
+                    callback_data=f"pref:MENSWEAR:{destination}",
+                ),
+                InlineKeyboardButton(
+                    "Womenswear",
+                    callback_data=f"pref:WOMENSWEAR:{destination}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "Gender-neutral",
+                    callback_data=f"pref:GENDER_NEUTRAL:{destination}",
+                ),
+                InlineKeyboardButton(
+                    "No preference",
+                    callback_data=f"pref:NO_PREFERENCE:{destination}",
+                ),
+            ],
+        ]
+    )
+
+
+def _suggestion_intent_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Safe Extension", callback_data="sug:SAFE_EXTENSION")],
+            [
+                InlineKeyboardButton(
+                    "Intentional Contrast",
+                    callback_data="sug:INTENTIONAL_CONTRAST",
+                )
+            ],
+            [InlineKeyboardButton("Surprise Me", callback_data="sug:SURPRISE_ME")],
+        ]
     )
 
 
@@ -143,6 +252,11 @@ async def handle_suggestion_action(
         action = query.data.removeprefix("sug:")
         selected_category = None
     state = context.user_data.get(SUGGESTION_STATE_KEY)
+    if action == "FINISH":
+        context.user_data.pop(SUGGESTION_STATE_KEY, None)
+        await query.answer("Suggestion session finished")
+        await query.edit_message_text(suggestion_finished_message())
+        return
     if action == "MORE":
         if (
             not isinstance(state, dict)
@@ -220,6 +334,10 @@ async def handle_suggestion_action(
         await query.edit_message_text(backend_error_message("INVALID_BACKEND_RESPONSE"))
         return
 
+    await query.edit_message_text(
+        "Generation complete. Your reference images are below."
+    )
+
     sent_labels: list[str] = []
     for suggestion in suggestions:
         if not isinstance(suggestion, dict):
@@ -264,12 +382,33 @@ async def handle_suggestion_action(
     reply_markup = None
     if generated_count < MAX_SUGGESTION_IMAGES:
         reply_markup = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Generate 2 More", callback_data="sug:MORE")]]
+            [
+                [InlineKeyboardButton("Generate 2 More", callback_data="sug:MORE")],
+                [
+                    InlineKeyboardButton(
+                        "Finish Suggestions",
+                        callback_data="sug:FINISH",
+                    )
+                ],
+            ]
         )
-    await query.edit_message_text(
-        f"Generated {generated_count} of {MAX_SUGGESTION_IMAGES} available references. "
-        "The images remain in this chat.",
-        reply_markup=reply_markup,
+        await query.message.reply_text(
+            suggestion_controls_message(
+                generated_count=generated_count,
+                maximum_count=MAX_SUGGESTION_IMAGES,
+            ),
+            reply_markup=reply_markup,
+        )
+        return
+
+    context.user_data.pop(SUGGESTION_STATE_KEY, None)
+    await query.message.reply_text(
+        suggestion_controls_message(
+            generated_count=generated_count,
+            maximum_count=MAX_SUGGESTION_IMAGES,
+        )
+        + "\n\n"
+        + suggestion_finished_message()
     )
 
 
