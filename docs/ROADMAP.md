@@ -8,7 +8,7 @@ Last updated: 2026-10-18
 
 ## Release Status
 
-### V1: Local MVP Complete
+### V1 and V2.3: Demonstration Release Online
 
 Implemented and locally verified:
 
@@ -34,7 +34,8 @@ Implemented and locally verified:
 - private Supabase image storage, PostgreSQL/pgvector persistence, migrations,
   AI-provider adapters, and a combined local restart script.
 
-V1 is working as a local MVP. It is not yet production-ready.
+The release works locally and as a Railway-hosted hackathon demonstration. It is
+not yet production-ready for unrestricted public usage.
 
 ### V1: Completed Validation
 
@@ -51,10 +52,10 @@ V1 is working as a local MVP. It is not yet production-ready.
   remove saved `/settings` controls, add `/suggestion` cancellation, and delete
   selected wardrobe-item messages when returning to the browser.
 
-### Local Demonstration: Before Submission
+### Submission Demonstration
 
-AURA will be submitted and demonstrated as a locally hosted prototype. The
-following tasks remain relevant without a cloud deployment:
+AURA will be submitted with a Railway-hosted backend and Telegram worker. The
+local launcher remains available for development and recovery testing.
 
 - [x] Authenticate every `/v1` Telegram-to-backend request with a shared bearer
   credential before trusting the asserted Telegram user identity. Keep `/health`
@@ -76,22 +77,42 @@ following tasks remain relevant without a cloud deployment:
 - [x] Scan the exact staged submission files for known credential formats,
   embedded connection credentials, sensitive paths, and suspicious secret
   assignments. No exposed credentials were found.
-- [ ] Commit and push the submission state.
+- [x] Commit and push the tested application state.
+- [x] Deploy `aura-backend` and `aura-telegram` as separate Railway services using
+  repository Dockerfiles, private runtime variables, one Telegram replica, and a
+  public backend healthcheck.
+- [x] Verify hosted `/start`, `/profile`, and `/check` interactions and confirm the
+  corresponding requests in Railway backend logs.
+- [x] Document Railway deployment, verification, restart, rollback, and Supabase
+  recovery boundaries in `docs/DEPLOYMENT.md`.
+- [x] Add a responsive public landing page at the Railway backend root describing
+  AURA's value, capabilities, architecture, and responsible-AI boundaries without
+  exposing the private Telegram bot link. The optional demo destination is supplied
+  through the backend-only `AURA_PUBLIC_TELEGRAM_URL` environment variable. Backend
+  validation: 110 tests passed.
+- [ ] At the end of submission preparation, add the deployed project and Telegram
+  bot links only to Devpost and approved social materials. Do not expose the bot
+  link in the GitHub README. Confirm the repository is public and test each
+  submitted link while signed out.
+- [ ] Capture demonstration screenshots and video, publish the required LinkedIn
+  reflection, and complete the Devpost entry.
 
 ### Post-Submission Production Work
 
-These tasks are deferred because the submission uses a local demonstration:
+These tasks remain deferred because the Railway deployment is a limited public
+demonstration rather than a production service:
 
 - [ ] Add per-user and provider-aware rate limits plus cost controls for vision,
   embeddings, and image generation before allowing broader or public access.
 - [ ] Configure production monitoring and actionable error reporting.
 - [ ] Copy verified backups to an encrypted off-device location and complete one
   restore drill against a disposable Supabase project before relying on recovery.
-- [ ] Select hosting for the FastAPI service and Telegram worker, configure
-  production secrets, and prepare deployment and recovery instructions.
-- [ ] Run the backend and Telegram worker as always-on services with automatic
-  startup after host restarts, crash recovery, and health monitoring so normal
-  operation does not depend on manually running `restart-aura.ps1`.
+- [x] Select demonstration hosting for the FastAPI service and Telegram worker,
+  configure hosted secrets, and prepare deployment and recovery instructions.
+- [x] Run the backend and Telegram worker as hosted services so normal operation
+  does not depend on manually running `restart-aura.ps1`.
+- [ ] Upgrade restart guarantees, alerting, and operational ownership before
+  treating the hosted services as production-ready.
 
 ### V1: Remaining Quality Work
 
@@ -279,5 +300,5 @@ privacy, provider, cost, and architecture decision before implementation.
 
 When work changes release scope, update this file and the summary in
 `docs/PROJECT_CONTEXT.md`. Keep implementation details in `docs/AI_PIPELINE.md`
-and `docs/DATABASE_SCHEMA.md`, and keep local operation instructions in
-`README.md`.
+and `docs/DATABASE_SCHEMA.md`, local operation instructions in `README.md`, and
+hosted operating procedures in `docs/DEPLOYMENT.md`.

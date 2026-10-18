@@ -1,13 +1,16 @@
 import logging
 import re
+from pathlib import Path
 from secrets import compare_digest
 from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from aura_backend.api.routes.feedback import router as feedback_router
+from aura_backend.api.routes.landing import router as landing_router
 from aura_backend.api.routes.items import router as items_router
 from aura_backend.api.routes.preferences import router as preferences_router
 from aura_backend.api.routes.health import router as health_router
@@ -19,6 +22,7 @@ from aura_backend.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+_STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
 
 
 def create_app(*, internal_api_key: str | None = None) -> FastAPI:
@@ -28,6 +32,7 @@ def create_app(*, internal_api_key: str | None = None) -> FastAPI:
         version="0.1.0",
         description="Backend API for AURA aesthetic matching.",
     )
+    app.mount("/static", StaticFiles(directory=_STATIC_DIRECTORY), name="static")
 
     @app.middleware("http")
     async def add_request_reference(request: Request, call_next):
@@ -81,6 +86,7 @@ def create_app(*, internal_api_key: str | None = None) -> FastAPI:
         )
         return response
 
+    app.include_router(landing_router)
     app.include_router(health_router)
     app.include_router(items_router)
     app.include_router(feedback_router)

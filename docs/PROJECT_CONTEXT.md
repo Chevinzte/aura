@@ -2,7 +2,7 @@
 
 ## Status
 
-AURA's local MVP is implemented.
+AURA's V2.3 hackathon demonstration release is implemented and deployed.
 
 Release completion, remaining V1 production work, and the V2 backlog are tracked
 in `docs/ROADMAP.md`. That file is the durable handoff when chat history is not
@@ -29,7 +29,9 @@ The current system can:
 
 The FastAPI backend, Telegram client, Supabase schema, storage integration, AI
 adapters, deterministic profile aggregation, matching logic, and automated tests
-are implemented. Deployment is not yet decided.
+are implemented. Railway hosts the backend and Telegram worker as separate
+Docker-based services. The hosted `/start`, `/profile`, and `/check` flows were
+manually verified on 18 October 2026.
 
 ## Product
 
@@ -78,8 +80,11 @@ without rewriting the core system.
 - Embedding dimensions: 1536
 - Optional reference-image provider: OpenAI Images API
 - Reference-image model: environment-configured, initially `gpt-image-2.5-flare`
-- Demonstration deployment: local Windows processes through `restart-aura.ps1`
-- Production deployment: deferred
+- Local development: Windows processes through `restart-aura.ps1`
+- Demonstration deployment: separate Railway services built from
+  `backend/Dockerfile` and `telegram-bot/Dockerfile`
+- Durable data: Supabase PostgreSQL, pgvector, and private Storage remain external
+  to the disposable Railway containers
 
 Model identifiers and provider connection details are environment configuration.
 AI providers must remain replaceable behind provider-neutral interfaces.
@@ -135,7 +140,7 @@ Current commands:
 
 The Telegram command menu is refreshed automatically when the bot starts.
 
-## Manual Acceptance Status
+## Manual Acceptance and Deployment Status
 
 The local Telegram flow has been manually verified for:
 
@@ -151,9 +156,12 @@ The local Telegram flow has been manually verified for:
   rebuilding, and navigation beyond the first ten owned items;
 - `/resetprofile` confirmation, owned-item clearing, and progress reset.
 
-These checks establish that the local MVP works end to end with the configured
-Supabase, AI Lodge, OpenAI Images, and Telegram services. They do not replace
-production security, deployment, monitoring, or broader quality evaluation.
+These checks establish that the application works end to end with the configured
+Supabase, AI Lodge, OpenAI Images, Telegram, and Railway services. The hosted
+Telegram worker and backend were separately verified through `/start`, `/profile`,
+and `/check`, with corresponding requests visible in Railway logs. This public
+demonstration deployment does not replace production monitoring, provider-aware
+rate limits, broader quality evaluation, or rehearsed disaster recovery.
 Persistent `/check` mode and candidate-album processing additionally have
 automated Telegram coverage and remain part of the final live demonstration.
 
@@ -410,25 +418,33 @@ Do not initially build:
 
 ## Current Priorities
 
-The local MVP feature set and implemented V2 features are complete. Wardrobe
-browsing, guided editing, feedback capture, and item reanalysis have been
-manually verified, and initial test users report that the application works.
-General user-experience feedback is recorded for a later improvement pass.
+The MVP and implemented V2.3 features are complete. Wardrobe browsing, guided
+editing, feedback capture, item reanalysis, and the latest Telegram continuity
+changes have been manually verified. Initial test users report that the
+application works, with broader user-experience feedback retained for later work.
 
-The submission will use a local demonstration through `restart-aura.ps1`. The
-final local acceptance pass completed successfully on 18 October 2026, covering
-the primary Telegram flows, feedback, suggestion controls, wardrobe navigation,
-guided editing, item reanalysis, removal cancellation, and profile-reset
-cancellation. Telegram-to-backend authentication and a verified manual Supabase
-database and private-Storage backup are also complete. Before submission, review
-the staged changes for credentials, then commit and push the submission state.
-Final documentation review and the latest Telegram interaction-continuity smoke
-test are complete.
+The submission demonstration now uses Railway-hosted `aura-backend` and
+`aura-telegram` services. The final full local acceptance pass and hosted
+`/start`, `/profile`, and `/check` verification completed successfully on
+18 October 2026. Telegram-to-backend authentication and a verified manual
+Supabase database and private-Storage backup are also complete. Deployment,
+verification, rollback, and recovery instructions are maintained in
+`docs/DEPLOYMENT.md`. The backend root now presents a public product overview
+without publishing the private Telegram bot link.
+
+At the end of submission preparation, add the deployed project and Telegram bot
+links only to the required Devpost and approved social materials. Do not publish
+the Telegram bot link in the GitHub README; access should remain limited to people
+who receive it through the user's direct or social channels. Also confirm
+repository visibility, scan the complete Git history for secrets, test every
+submitted link outside the signed-in development session, and capture the
+required demo media.
 
 Production monitoring, encrypted off-device backups, a disposable restore drill,
-cloud hosting, production secret configuration, always-on processes, automatic
-restart, hosted recovery procedures, and provider-aware rate or cost controls are
-explicitly deferred until AURA is prepared for broader or public deployment.
+provider-aware rate or cost controls, and production availability guarantees are
+explicitly deferred until AURA is prepared for broader public usage. Railway
+provides always-on demonstration processes, but the current trial plan and
+restart behavior are not treated as a production service-level commitment.
 
 Before that final stage, prioritize reviewing the collected user feedback and
 agreeing on the next user-experience improvements. The latest improvement pass
