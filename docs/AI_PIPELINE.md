@@ -319,6 +319,22 @@ analysis. Every resulting profile contribution records both the source feature I
 and optional correction ID. The previous correction is restored if profile
 rebuilding fails.
 
+### User-Triggered Reanalysis
+
+Reanalysis is available only from a selected owned item in `/wardrobe`; AURA never
+automatically reprocesses historical images. Before invoking the provider, Telegram
+warns that the action consumes AI credits and may produce different output. The
+backend downloads the retained private image, validates it again, and runs the same
+versioned vision, canonical-text, and embedding pipeline used for new items.
+
+The proposed result is stored as an inactive `AI_REANALYSIS` feature revision and
+shown beside the current effective analysis. It does not affect the profile until
+the user selects **Save New Analysis**. Confirmation atomically activates the new
+revision, deactivates any previous manual correction or reanalysis, and rebuilds
+the profile. A failed rebuild restores the previous active revision. Discarding
+deletes the inactive preview. Original AI features and inactive accepted revisions
+remain preserved for provenance.
+
 ## Candidate Matching V1
 
 Matching is deterministic and operates on a candidate's validated visual

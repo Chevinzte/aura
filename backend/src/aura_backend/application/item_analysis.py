@@ -65,6 +65,13 @@ class ItemAnalysisResult:
     embedding: SemanticEmbedding
 
 
+@dataclass(frozen=True, slots=True)
+class ExtractedItemAnalysis:
+    features: ItemVisualFeaturesV1
+    canonical_embedding_text: str
+    embedding: SemanticEmbedding
+
+
 class ItemAnalysisService:
     """Coordinate one item's vision, embedding, and persistence pipeline."""
 
@@ -97,26 +104,17 @@ class ItemAnalysisService:
             ) from error
 
         try:
-            features = await self._analyze_with_retries(image)
-        except AIProviderError as error:
-            self._record_failure(analysis_id, "VISION_ANALYSIS_FAILED", error)
-
-        if not features.quality.usable:
-            self._record_failure(analysis_id, "IMAGE_UNUSABLE")
-
-        canonical_text = build_canonical_embedding_text(features)
-
-        try:
-            embedding = await self._embed_with_retries(canonical_text)
-        except AIProviderError as error:
-            self._record_failure(analysis_id, "EMBEDDING_GENERATION_FAILED", error)
+            extracted = await self.extract(image)
+        except ItemAnalysisFailed as error:
+            cause = error.__cause__ if isinstance(error.__cause__, Exception) else None
+            self._record_failure(analysis_id, error.error_code, cause)
 
         try:
             self._repository.complete_feature_analysis(
                 analysis_id=analysis_id,
-                features=features,
-                canonical_embedding_text=canonical_text,
-                embedding=embedding,
+                features=extracted.features,
+                canonical_embedding_text=extracted.canonical_embedding_text,
+                embedding=extracted.embedding,
             )
         except Exception as error:
             raise ItemAnalysisPersistenceError(
@@ -125,6 +123,27 @@ class ItemAnalysisService:
 
         return ItemAnalysisResult(
             analysis_id=analysis_id,
+            features=extracted.features,
+            canonical_embedding_text=extracted.canonical_embedding_text,
+            embedding=extracted.embedding,
+        )
+
+    async def extract(self, image: ImageInput) -> ExtractedItemAnalysis:
+        """Run the reusable AI pipeline without mutating item lifecycle state."""
+        try:
+            features = await self._analyze_with_retries(image)
+        except AIProviderError as error:
+            raise ItemAnalysisFailed("VISION_ANALYSIS_FAILED") from error
+
+        if not features.quality.usable:
+            raise ItemAnalysisFailed("IMAGE_UNUSABLE")
+
+        canonical_text = build_canonical_embedding_text(features)
+        try:
+            embedding = await self._embed_with_retries(canonical_text)
+        except AIProviderError as error:
+            raise ItemAnalysisFailed("EMBEDDING_GENERATION_FAILED") from error
+        return ExtractedItemAnalysis(
             features=features,
             canonical_embedding_text=canonical_text,
             embedding=embedding,

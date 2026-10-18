@@ -235,8 +235,9 @@ new snapshot and deactivation of the prior snapshot occur in one transaction.
 
 ### `item_feature_corrections`
 
-Stores immutable user-confirmed overlays for an owned item's AI analysis. The
-source `item_visual_features` row is never overwritten.
+Stores immutable user-confirmed feature revisions for an owned item's AI analysis,
+including guided corrections and accepted AI reanalyses. The source
+`item_visual_features` row is never overwritten.
 
 | Column | Type | Rules |
 | --- | --- | --- |
@@ -245,7 +246,7 @@ source `item_visual_features` row is never overwritten.
 | `item_id` | `uuid` | Required, references `items(id)` |
 | `source_features_id` | `uuid` | Required, references `item_visual_features(id)` |
 | `version` | `integer` | Required, positive, unique per item |
-| `is_active` | `boolean` | Required; at most one active correction per item |
+| `is_active` | `boolean` | Required; at most one active revision per item |
 | `corrected_features` | `jsonb` | Required validated feature object |
 | `corrected_fields` | `text[]` | Required non-empty list of user-edited fields |
 | `canonical_embedding_text` | `text` | Required deterministic corrected feature text |
@@ -255,12 +256,19 @@ source `item_visual_features` row is never overwritten.
 | `embedding_dimensions` | `integer` | Required, equals 1536 for version 1 |
 | `embedding_schema_version` | `integer` | Required, positive |
 | `feature_schema_version` | `integer` | Required, positive |
+| `revision_kind` | `text` | `USER_CORRECTION` or `AI_REANALYSIS` |
+| `accepted_at` | `timestamptz` | Null only while an AI reanalysis awaits confirmation |
 | `created_at` | `timestamptz` | Required, default `now()` |
 
 Corrections apply only to active, ready `OWNED` items and must remain compatible
 with the active feature and embedding pipeline. A correction save deactivates the
 prior version atomically. A rollback function restores the prior active version if
 the subsequent profile rebuild fails.
+
+Reanalysis previews are inactive `AI_REANALYSIS` rows. Confirmation activates the
+preview and records `accepted_at`; discard deletes only an unaccepted inactive
+preview. Database functions verify item ownership and prevent a preview from
+changing profile inputs before explicit confirmation.
 
 ### `aesthetic_profile_items`
 
@@ -412,6 +420,7 @@ The applied migrations create:
 - B-tree index on `items(user_id, content_sha256)`;
 - B-tree index on `item_visual_features(item_id, created_at desc)`;
 - B-tree index on `item_visual_features(status, created_at)` for retry workers;
+- partial B-tree index for pending owned-item reanalysis previews;
 - partial unique index on `aesthetic_profiles(user_id)` where `is_active`;
 - B-tree index on `aesthetic_profiles(user_id, created_at desc)`;
 - B-tree index on `aesthetic_profile_items(item_visual_features_id)`;

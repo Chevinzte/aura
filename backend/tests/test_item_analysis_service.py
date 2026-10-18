@@ -141,6 +141,22 @@ def test_item_analysis_retries_a_transient_vision_failure() -> None:
     assert vision_analyzer.calls == 2
 
 
+def test_extract_runs_pipeline_without_repository_lifecycle_events() -> None:
+    repository = FakeRepository()
+    service = ItemAnalysisService(
+        repository=repository,
+        vision_analyzer=StaticVisionAnalyzer(make_usable_features()),
+        embedding_provider=StaticEmbeddingProvider(),
+        retry_delays=(),
+    )
+
+    result = run(service.extract(ImageInput(data=b"image", mime_type="image/png")))
+
+    assert result.features.item_name == "blush pink handbag"
+    assert result.embedding.values == [0.2, 0.8]
+    assert repository.events == []
+
+
 def test_item_analysis_records_unusable_image_without_embedding() -> None:
     repository = FakeRepository()
     embedding_provider = StaticEmbeddingProvider()

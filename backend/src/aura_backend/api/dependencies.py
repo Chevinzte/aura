@@ -156,10 +156,20 @@ def get_wardrobe_service() -> WardrobeService:
     client = get_supabase_client()
     repository = AuraRepository(client)
     pipeline = _pipeline(settings)
+    embedding_provider = OpenAICompatibleEmbeddingProvider.from_settings(settings)
     return WardrobeService(
         repository=repository,
         storage=SupabaseImageStorage(client),
-        embedding_provider=OpenAICompatibleEmbeddingProvider.from_settings(settings),
+        image_validator=ImageValidator(
+            max_bytes=settings.max_image_bytes,
+            min_dimension=settings.min_image_dimension,
+        ),
+        item_analysis=ItemAnalysisService(
+            repository=repository,
+            vision_analyzer=OpenAICompatibleVisionAnalyzer.from_settings(settings),
+            embedding_provider=embedding_provider,
+        ),
+        embedding_provider=embedding_provider,
         profile_service=ProfileService(
             repository=repository,
             builder=AestheticProfileBuilder(),

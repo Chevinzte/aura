@@ -519,6 +519,11 @@ class AuraRepository:
             else source.get("features")
         )
         fields = correction.get("corrected_fields", []) if correction is not None else []
+        revision_kind = (
+            str(correction.get("revision_kind")) if correction is not None else None
+        )
+        if revision_kind == "AI_REANALYSIS":
+            fields = []
         return WardrobeItemRecord(
             item_id=UUID(str(row["id"])),
             user_id=UUID(str(row["user_id"])),
@@ -531,6 +536,7 @@ class AuraRepository:
             active_correction_id=(
                 UUID(str(correction["id"])) if correction is not None else None
             ),
+            revision_kind=revision_kind,
         )
 
     def activate_item_feature_correction(
@@ -588,13 +594,79 @@ class AuraRepository:
             },
         ).execute()
 
+    def create_item_reanalysis_preview(
+        self,
+        *,
+        revision_id: UUID,
+        user_id: UUID,
+        item_id: UUID,
+        source_features_id: UUID,
+        features: ItemVisualFeaturesV1,
+        canonical_embedding_text: str,
+        embedding: SemanticEmbedding,
+        corrected_fields: list[Any],
+        pipeline: FeaturePipelineVersion,
+    ) -> dict[str, Any]:
+        response = self._client.rpc(
+            "create_item_reanalysis_preview",
+            {
+                "p_revision_id": str(revision_id),
+                "p_user_id": str(user_id),
+                "p_item_id": str(item_id),
+                "p_source_features_id": str(source_features_id),
+                "p_features": features.model_dump(by_alias=True, mode="json"),
+                "p_canonical_embedding_text": canonical_embedding_text,
+                "p_embedding": embedding.values,
+                "p_corrected_fields": [field.value for field in corrected_fields],
+                "p_embedding_provider": embedding.provider,
+                "p_embedding_model": embedding.model,
+                "p_embedding_dimensions": embedding.dimensions,
+                "p_embedding_schema_version": embedding.schema_version,
+                "p_feature_schema_version": pipeline.feature_schema_version,
+            },
+        ).execute()
+        return _require_single_row(response.data, "creating reanalysis preview")
+
+    def activate_item_reanalysis(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        revision_id: UUID,
+    ) -> dict[str, Any]:
+        response = self._client.rpc(
+            "activate_item_reanalysis",
+            {
+                "p_user_id": str(user_id),
+                "p_item_id": str(item_id),
+                "p_revision_id": str(revision_id),
+            },
+        ).execute()
+        return _require_single_row(response.data, "activating reanalysis")
+
+    def discard_item_reanalysis(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        revision_id: UUID,
+    ) -> None:
+        self._client.rpc(
+            "discard_item_reanalysis",
+            {
+                "p_user_id": str(user_id),
+                "p_item_id": str(item_id),
+                "p_revision_id": str(revision_id),
+            },
+        ).execute()
+
     def _list_active_correction_rows(self, *, user_id: UUID) -> list[dict[str, Any]]:
         response = (
             self._client.table("item_feature_corrections")
             .select(
                 "id,item_id,source_features_id,corrected_features,corrected_fields,"
                 "embedding,embedding_provider,embedding_model,embedding_dimensions,"
-                "embedding_schema_version,feature_schema_version"
+                "embedding_schema_version,feature_schema_version,revision_kind"
             )
             .eq("user_id", str(user_id))
             .eq("is_active", "true")

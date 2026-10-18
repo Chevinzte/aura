@@ -211,6 +211,12 @@ def test_wardrobe_requests_use_backend_contract() -> None:
             return httpx.Response(200, json={"field": "item_name", "features": {}})
         if request.url.path.endswith("/corrections"):
             return httpx.Response(200, json={"profile_status": "READY"})
+        if request.url.path.endswith("/reanalysis/preview"):
+            return httpx.Response(200, json={"preview_id": str(uuid4())})
+        if request.url.path.endswith("/confirm"):
+            return httpx.Response(200, json={"profile_status": "READY"})
+        if "/reanalysis/" in request.url.path and request.method == "DELETE":
+            return httpx.Response(204)
         if request.url.path == f"/v1/wardrobe/items/{item_id}":
             return httpx.Response(200, json={"item_id": str(item_id)})
         return httpx.Response(200, json={"items": [], "page": 1})
@@ -254,11 +260,36 @@ def test_wardrobe_requests_use_backend_contract() -> None:
             values=["Travel bag"],
         )
     )
+    preview = run(
+        client.preview_item_reanalysis(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=item_id,
+        )
+    )
+    preview_id = uuid4()
+    run(
+        client.confirm_item_reanalysis(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=item_id,
+            preview_id=preview_id,
+        )
+    )
+    run(
+        client.discard_item_reanalysis(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=item_id,
+            preview_id=preview_id,
+        )
+    )
     run(client.close())
 
     assert image == b"jpeg"
     assert mime_type == "image/jpeg"
     assert options == [{"field": "item_name"}]
+    assert "preview_id" in preview
     assert seen == [
         ("GET", "/v1/wardrobe"),
         ("GET", f"/v1/wardrobe/items/{item_id}"),
@@ -266,6 +297,9 @@ def test_wardrobe_requests_use_backend_contract() -> None:
         ("GET", "/v1/wardrobe/correction-options"),
         ("POST", f"/v1/wardrobe/items/{item_id}/corrections/preview"),
         ("POST", f"/v1/wardrobe/items/{item_id}/corrections"),
+        ("POST", f"/v1/wardrobe/items/{item_id}/reanalysis/preview"),
+        ("POST", f"/v1/wardrobe/items/{item_id}/reanalysis/{preview_id}/confirm"),
+        ("DELETE", f"/v1/wardrobe/items/{item_id}/reanalysis/{preview_id}"),
     ]
 
 

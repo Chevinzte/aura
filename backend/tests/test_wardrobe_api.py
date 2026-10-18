@@ -9,6 +9,8 @@ from aura_backend.application.wardrobe import (
     CorrectionField,
     CorrectionPreview,
     CorrectionResult,
+    ReanalysisPreview,
+    ReanalysisResult,
     WardrobeImage,
     WardrobeItemDetail,
     WardrobeItemSummary,
@@ -85,6 +87,25 @@ class FakeWardrobeService:
             profile=ProfileRebuildResult(status="READY", usable_item_count=6),
         )
 
+    async def preview_reanalysis(self, **_: object) -> ReanalysisPreview:
+        return ReanalysisPreview(
+            preview_id=uuid4(),
+            item_id=ITEM_ID,
+            current_features=make_features(),
+            proposed_features=make_features().model_copy(update={"item_name": "New bag"}),
+            replaces_manual_corrections=False,
+        )
+
+    def confirm_reanalysis(self, **_: object) -> ReanalysisResult:
+        return ReanalysisResult(
+            item_id=ITEM_ID,
+            features=make_features().model_copy(update={"item_name": "New bag"}),
+            profile=ProfileRebuildResult(status="READY", usable_item_count=6),
+        )
+
+    def discard_reanalysis(self, **_: object) -> None:
+        return None
+
 
 def test_wardrobe_api_lists_details_image_and_corrections() -> None:
     app = create_app()
@@ -122,3 +143,30 @@ def test_correction_options_expose_typed_input_examples() -> None:
     style = next(option for option in response.json() if option["field"] == "style_traits")
     assert "casual, minimal" in style["examples"]
     assert "separated by commas" in style["input_hint"]
+
+
+def test_reanalysis_api_previews_confirms_and_discards() -> None:
+    app = create_app()
+    app.dependency_overrides[get_wardrobe_service] = lambda: FakeWardrobeService()
+    client = TestClient(app)
+    headers = {"X-Telegram-User-Id": "123"}
+
+    preview = client.post(
+        f"/v1/wardrobe/items/{ITEM_ID}/reanalysis/preview",
+        headers=headers,
+    )
+    preview_id = preview.json()["preview_id"]
+    confirmed = client.post(
+        f"/v1/wardrobe/items/{ITEM_ID}/reanalysis/{preview_id}/confirm",
+        headers=headers,
+    )
+    discarded = client.delete(
+        f"/v1/wardrobe/items/{ITEM_ID}/reanalysis/{preview_id}",
+        headers=headers,
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["proposed_features"]["itemName"] == "New bag"
+    assert confirmed.status_code == 200
+    assert confirmed.json()["profile_status"] == "READY"
+    assert discarded.status_code == 204

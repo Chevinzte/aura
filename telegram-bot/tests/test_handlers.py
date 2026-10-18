@@ -1,16 +1,19 @@
 from asyncio import run
 import base64
 from types import SimpleNamespace
+from uuid import uuid4
 
 import httpx
 
 from aura_telegram.backend import AuraBackendClient
 from aura_telegram.handlers import (
+    CANDIDATE_MODE,
     OWNED_ALBUMS_KEY,
     OWNED_MODE,
     add_owned,
     browse_wardrobe,
     handle_correction_text,
+    handle_feedback,
     handle_preference_action,
     handle_photo,
     handle_profile_action,
@@ -149,6 +152,121 @@ def test_owned_album_groups_and_processes_each_photo(monkeypatch) -> None:
         assert "album-1" not in context.user_data[OWNED_ALBUMS_KEY]
 
     run(scenario())
+
+
+def test_candidate_check_asks_separate_taste_and_decision_questions() -> None:
+    match_id = uuid4()
+
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/items/candidates"
+        return httpx.Response(
+            201,
+            json={
+                "match_id": str(match_id),
+                "match": {"explanation": "Classification: Moderate Fit"},
+            },
+        )
+
+    class FakeFile:
+        async def download_as_bytearray(self) -> bytearray:
+            return bytearray(b"jpeg")
+
+    class FakePhoto:
+        file_unique_id = "candidate-photo"
+
+        async def get_file(self) -> FakeFile:
+            return FakeFile()
+
+    class FakeProgress:
+        def __init__(self) -> None:
+            self.edits: list[tuple[str, object]] = []
+
+        async def edit_text(self, text: str, **kwargs: object) -> None:
+            self.edits.append((text, kwargs.get("reply_markup")))
+
+    class CandidateMessage:
+        def __init__(self) -> None:
+            self.photo = [FakePhoto()]
+            self.media_group_id = None
+            self.caption = None
+            self.progress = FakeProgress()
+            self.prompts: list[tuple[str, object]] = []
+
+        async def reply_text(self, text: str, **kwargs: object):
+            if text.startswith("Analyzing"):
+                return self.progress
+            self.prompts.append((text, kwargs.get("reply_markup")))
+            return None
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    message = CandidateMessage()
+    update = SimpleNamespace(
+        effective_message=message,
+        effective_user=SimpleNamespace(id=123, full_name="Vinz"),
+    )
+    context = SimpleNamespace(
+        user_data={"upload_mode": CANDIDATE_MODE},
+        bot_data={"backend_client": client},
+    )
+
+    run(handle_photo(update, context))  # type: ignore[arg-type]
+    run(client.close())
+
+    assert message.progress.edits == [("Classification: Moderate Fit", None)]
+    assert len(message.prompts) == 2
+    taste_text, taste_markup = message.prompts[0]
+    decision_text, decision_markup = message.prompts[1]
+    assert taste_text.startswith("Does this item suit your taste?")
+    assert decision_text.startswith("What did you decide?")
+    assert [button.text for button in taste_markup.inline_keyboard[0]] == [
+        "👍 Fits my taste",
+        "👎 Not my taste",
+    ]
+    assert [button.text for button in decision_markup.inline_keyboard[0]] == [
+        "🛍 Bought it",
+        "🚫 Passed on it",
+    ]
+    assert "upload_mode" not in context.user_data
+
+
+def test_feedback_replaces_answered_question_with_recorded_choice() -> None:
+    match_id = uuid4()
+
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == f"/v1/matches/{match_id}/feedback"
+        assert b'"feedback_type":"NOT_BOUGHT"' in await request.aread()
+        return httpx.Response(200, json={"feedback_type": "NOT_BOUGHT"})
+
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = f"fb:{match_id}:NOT_BOUGHT"
+            self.from_user = SimpleNamespace(id=123)
+            self.answers: list[str] = []
+            self.edits: list[str] = []
+
+        async def answer(self, text: str, **_: object) -> None:
+            self.answers.append(text)
+
+        async def edit_message_text(self, text: str, **_: object) -> None:
+            self.edits.append(text)
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    query = FakeQuery()
+    context = SimpleNamespace(bot_data={"backend_client": client})
+
+    run(handle_feedback(SimpleNamespace(callback_query=query), context))  # type: ignore[arg-type]
+    run(client.close())
+
+    assert query.answers == ["Feedback received"]
+    assert query.edits == ["✅ Feedback received\n\nDecision: Passed on it"]
 
 
 def test_show_profile_uses_first_name_and_replies_with_profile() -> None:
@@ -581,6 +699,84 @@ def test_editing_shows_current_value_and_returns_to_field_menu() -> None:
 
     assert context.user_data["wardrobe_state"]["stage"] == "choose_field"
     assert query.captions[-1][1].inline_keyboard[-1][0].text == "Back to Item"
+
+
+def test_reanalysis_requires_review_before_saving() -> None:
+    item_id = "31a2b686-ffb6-4ab4-a7be-876540bca13a"
+    preview_id = "a763d337-0ab5-47b2-9d1d-c93e236f03c8"
+
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/reanalysis/preview"):
+            return httpx.Response(
+                200,
+                json={
+                    "preview_id": preview_id,
+                    "item_id": item_id,
+                    "replaces_manual_corrections": True,
+                    "current_features": {
+                        "itemName": "Blue shirt",
+                        "itemType": {"value": "shirt"},
+                        "colours": [{"name": "blue"}],
+                    },
+                    "proposed_features": {
+                        "itemName": "Navy overshirt",
+                        "itemType": {"value": "overshirt"},
+                        "colours": [{"name": "navy"}],
+                    },
+                },
+            )
+        if request.url.path.endswith("/confirm"):
+            return httpx.Response(
+                200,
+                json={"profile_status": "READY", "usable_item_count": 6},
+            )
+        raise AssertionError(request.url.path)
+
+    class PhotoMessage:
+        photo = [object()]
+
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = f"wra:{item_id}"
+            self.message = PhotoMessage()
+            self.from_user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+            self.captions: list[tuple[str, object]] = []
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+        async def edit_message_caption(self, caption: str, **kwargs: object) -> None:
+            self.captions.append((caption, kwargs.get("reply_markup")))
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    context = SimpleNamespace(
+        user_data={"wardrobe_state": {"page": 1, "item_id": item_id}},
+        bot_data={"backend_client": client},
+    )
+    query = FakeQuery()
+    update = SimpleNamespace(callback_query=query)
+
+    run(handle_wardrobe_action(update, context))  # type: ignore[arg-type]
+    assert "uses AI credits" in query.captions[-1][0]
+    assert query.captions[-1][1].inline_keyboard[0][0].callback_data == "wrs:y"
+
+    query.data = "wrs:y"
+    run(handle_wardrobe_action(update, context))  # type: ignore[arg-type]
+    assert context.user_data["wardrobe_state"]["stage"] == "review_reanalysis"
+    assert "Current Analysis" in query.captions[-1][0]
+    assert "New Analysis" in query.captions[-1][0]
+    assert query.captions[-1][1].inline_keyboard[0][0].callback_data == "wrc:y"
+
+    query.data = "wrc:y"
+    run(handle_wardrobe_action(update, context))  # type: ignore[arg-type]
+    run(client.close())
+
+    assert "Reanalysis saved" in query.captions[-1][0]
+    assert context.user_data["wardrobe_state"] == {"page": 1}
 
 
 def test_back_to_item_reopens_photo_from_text_editing_message() -> None:

@@ -9,7 +9,8 @@ from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from aura_backend.ai.canonical_text import build_canonical_embedding_text
-from aura_backend.ai.contracts import EmbeddingProvider
+from aura_backend.ai.contracts import EmbeddingProvider, ImageInput
+from aura_backend.application.item_analysis import ItemAnalysisService
 from aura_backend.application.profiles import ProfileRebuildResult, ProfileService
 from aura_backend.domain.models import (
     ColourObservation,
@@ -28,6 +29,7 @@ from aura_backend.domain.models import (
     TextureObservation,
     TextureValue,
 )
+from aura_backend.media.images import ImageValidator
 from aura_backend.media.storage import ImageStorage
 from aura_backend.repositories.supabase import FeaturePipelineVersion
 
@@ -254,6 +256,7 @@ class WardrobeItemDetail:
     created_at: datetime
     features: ItemVisualFeaturesV1
     corrected_fields: list[CorrectionField]
+    revision_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,6 +281,22 @@ class CorrectionResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ReanalysisPreview:
+    preview_id: UUID
+    item_id: UUID
+    current_features: ItemVisualFeaturesV1
+    proposed_features: ItemVisualFeaturesV1
+    replaces_manual_corrections: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ReanalysisResult:
+    item_id: UUID
+    features: ItemVisualFeaturesV1
+    profile: ProfileRebuildResult
+
+
+@dataclass(frozen=True, slots=True)
 class WardrobeItemRecord:
     item_id: UUID
     user_id: UUID
@@ -288,6 +307,7 @@ class WardrobeItemRecord:
     features: ItemVisualFeaturesV1
     corrected_fields: list[CorrectionField]
     active_correction_id: UUID | None = None
+    revision_kind: str | None = None
 
 
 class WardrobeRepository(Protocol):
@@ -323,6 +343,12 @@ class WardrobeRepository(Protocol):
         previous_correction_id: UUID | None,
     ) -> None: ...
 
+    def create_item_reanalysis_preview(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def activate_item_reanalysis(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def discard_item_reanalysis(self, **kwargs: Any) -> None: ...
+
 
 class WardrobeService:
     """Browse owned belongings and apply confirmed, versioned corrections."""
@@ -332,12 +358,16 @@ class WardrobeService:
         *,
         repository: WardrobeRepository,
         storage: ImageStorage,
+        image_validator: ImageValidator,
+        item_analysis: ItemAnalysisService,
         embedding_provider: EmbeddingProvider,
         profile_service: ProfileService,
         pipeline: FeaturePipelineVersion,
     ) -> None:
         self._repository = repository
         self._storage = storage
+        self._image_validator = image_validator
+        self._item_analysis = item_analysis
         self._embedding_provider = embedding_provider
         self._profile_service = profile_service
         self._pipeline = pipeline
@@ -383,6 +413,7 @@ class WardrobeService:
             created_at=record.created_at,
             features=record.features,
             corrected_fields=record.corrected_fields,
+            revision_kind=record.revision_kind,
         )
 
     def get_image(
@@ -460,6 +491,100 @@ class WardrobeService:
             features=features,
             profile=profile,
         )
+
+    async def preview_reanalysis(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+    ) -> ReanalysisPreview:
+        record = self._record(telegram_user_id, display_name, item_id)
+        try:
+            data = self._storage.download(record.storage_path)
+            image = self._image_validator.validate(data, record.mime_type)
+        except Exception as error:
+            raise WardrobePersistenceError("Could not prepare wardrobe image") from error
+
+        extracted = await self._item_analysis.extract(
+            ImageInput(
+                data=image.analysis_data,
+                mime_type=image.mime_type,
+                filename=None,
+            )
+        )
+        preview_id = uuid4()
+        try:
+            self._repository.create_item_reanalysis_preview(
+                revision_id=preview_id,
+                user_id=record.user_id,
+                item_id=item_id,
+                source_features_id=record.source_features_id,
+                features=extracted.features,
+                canonical_embedding_text=extracted.canonical_embedding_text,
+                embedding=extracted.embedding,
+                corrected_fields=list(CorrectionField),
+                pipeline=self._pipeline,
+            )
+        except Exception as error:
+            raise WardrobePersistenceError("Could not save reanalysis preview") from error
+        return ReanalysisPreview(
+            preview_id=preview_id,
+            item_id=item_id,
+            current_features=record.features,
+            proposed_features=extracted.features,
+            replaces_manual_corrections=bool(record.corrected_fields),
+        )
+
+    def confirm_reanalysis(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+        preview_id: UUID,
+    ) -> ReanalysisResult:
+        record = self._record(telegram_user_id, display_name, item_id)
+        try:
+            activated = self._repository.activate_item_reanalysis(
+                user_id=record.user_id,
+                item_id=item_id,
+                revision_id=preview_id,
+            )
+            features = ItemVisualFeaturesV1.model_validate(
+                activated.get("corrected_features")
+            )
+            profile = self._profile_service.rebuild_if_ready(record.user_id)
+        except Exception as error:
+            try:
+                self._repository.restore_item_feature_correction(
+                    user_id=record.user_id,
+                    item_id=item_id,
+                    correction_id=preview_id,
+                    previous_correction_id=record.active_correction_id,
+                )
+            except Exception:
+                pass
+            raise WardrobePersistenceError("Could not confirm item reanalysis") from error
+        return ReanalysisResult(item_id=item_id, features=features, profile=profile)
+
+    def discard_reanalysis(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+        preview_id: UUID,
+    ) -> None:
+        user_id = self._user_id(telegram_user_id, display_name)
+        try:
+            self._repository.discard_item_reanalysis(
+                user_id=user_id,
+                item_id=item_id,
+                revision_id=preview_id,
+            )
+        except Exception as error:
+            raise WardrobePersistenceError("Could not discard item reanalysis") from error
 
     def _record(
         self,

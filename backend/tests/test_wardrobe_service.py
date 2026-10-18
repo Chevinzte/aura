@@ -1,10 +1,12 @@
 from asyncio import run
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
 from aura_backend.application.profiles import ProfileRebuildResult
+from aura_backend.application.item_analysis import ExtractedItemAnalysis
 from aura_backend.application.wardrobe import (
     CorrectionField,
     InvalidCorrection,
@@ -62,6 +64,9 @@ class FakeRepository:
         self.previous_correction_id = uuid4()
         self.activated: dict[str, object] | None = None
         self.restored: dict[str, object] | None = None
+        self.reanalysis_preview: dict[str, object] | None = None
+        self.activated_reanalysis: dict[str, object] | None = None
+        self.discarded_reanalysis: dict[str, object] | None = None
 
     def find_or_create_user(self, *_: object) -> dict[str, str]:
         return {"id": str(self.user_id)}
@@ -97,6 +102,23 @@ class FakeRepository:
     def restore_item_feature_correction(self, **kwargs: object) -> None:
         self.restored = kwargs
 
+    def create_item_reanalysis_preview(self, **kwargs: object) -> dict[str, str]:
+        self.reanalysis_preview = kwargs
+        return {"id": str(kwargs["revision_id"])}
+
+    def activate_item_reanalysis(self, **kwargs: object) -> dict[str, object]:
+        self.activated_reanalysis = kwargs
+        assert self.reanalysis_preview is not None
+        return {
+            "id": str(kwargs["revision_id"]),
+            "corrected_features": self.reanalysis_preview["features"].model_dump(
+                by_alias=True, mode="json"
+            ),
+        }
+
+    def discard_item_reanalysis(self, **kwargs: object) -> None:
+        self.discarded_reanalysis = kwargs
+
 
 class FakeStorage:
     def download(self, path: str) -> bytes:
@@ -113,6 +135,34 @@ class FakeEmbeddingProvider:
             dimensions=2,
             schema_version=1,
             values=[1.0, 0.0],
+        )
+
+
+class FakeImageValidator:
+    def validate(self, data: bytes, mime_type: str):
+        assert data == b"jpeg"
+        return SimpleNamespace(analysis_data=b"normalized", mime_type=mime_type)
+
+
+class FakeItemAnalysis:
+    async def extract(self, image) -> ExtractedItemAnalysis:
+        assert image.data == b"normalized"
+        features = make_features().model_copy(
+            update={
+                "item_name": "Navy overshirt",
+                "item_type": ItemTypeObservation(value="overshirt", confidence=0.95),
+            }
+        )
+        return ExtractedItemAnalysis(
+            features=features,
+            canonical_embedding_text="item_type: overshirt\ncolours: blue",
+            embedding=SemanticEmbedding(
+                provider="gateway",
+                model="embedding-model",
+                dimensions=2,
+                schema_version=1,
+                values=[0.8, 0.2],
+            ),
         )
 
 
@@ -134,6 +184,8 @@ def make_service(
     return WardrobeService(
         repository=repository,
         storage=FakeStorage(),
+        image_validator=FakeImageValidator(),
+        item_analysis=FakeItemAnalysis(),
         embedding_provider=FakeEmbeddingProvider(),
         profile_service=profile_service or FakeProfileService(),
         pipeline=PIPELINE,
@@ -254,4 +306,77 @@ def test_profile_failure_restores_previous_correction() -> None:
         )
 
     assert repository.restored is not None
+    assert repository.restored["previous_correction_id"] == repository.previous_correction_id
+
+
+def test_reanalysis_requires_preview_before_confirming_and_rebuilds_profile() -> None:
+    repository = FakeRepository()
+    service = make_service(repository)
+
+    preview = run(
+        service.preview_reanalysis(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=repository.item_id,
+        )
+    )
+    result = service.confirm_reanalysis(
+        telegram_user_id=123,
+        display_name="Vinz",
+        item_id=repository.item_id,
+        preview_id=preview.preview_id,
+    )
+
+    assert preview.current_features.item_name == "Blue shirt"
+    assert preview.proposed_features.item_name == "Navy overshirt"
+    assert preview.replaces_manual_corrections
+    assert repository.reanalysis_preview is not None
+    assert repository.activated_reanalysis is not None
+    assert result.features.item_type.value == "overshirt"
+    assert result.profile.status == "READY"
+
+
+def test_reanalysis_preview_can_be_discarded_without_profile_change() -> None:
+    repository = FakeRepository()
+    service = make_service(repository)
+    preview = run(
+        service.preview_reanalysis(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=repository.item_id,
+        )
+    )
+
+    service.discard_reanalysis(
+        telegram_user_id=123,
+        display_name="Vinz",
+        item_id=repository.item_id,
+        preview_id=preview.preview_id,
+    )
+
+    assert repository.discarded_reanalysis is not None
+    assert repository.activated_reanalysis is None
+
+
+def test_reanalysis_profile_failure_restores_previous_revision() -> None:
+    repository = FakeRepository()
+    service = make_service(repository, profile_service=FakeProfileService(fail=True))
+    preview = run(
+        service.preview_reanalysis(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=repository.item_id,
+        )
+    )
+
+    with pytest.raises(WardrobePersistenceError):
+        service.confirm_reanalysis(
+            telegram_user_id=123,
+            display_name="Vinz",
+            item_id=repository.item_id,
+            preview_id=preview.preview_id,
+        )
+
+    assert repository.restored is not None
+    assert repository.restored["correction_id"] == preview.preview_id
     assert repository.restored["previous_correction_id"] == repository.previous_correction_id

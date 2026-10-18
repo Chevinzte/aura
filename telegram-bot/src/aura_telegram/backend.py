@@ -274,6 +274,47 @@ class AuraBackendClient:
             json={"field": field, "values": values},
         )
 
+    async def preview_item_reanalysis(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/wardrobe/items/{item_id}/reanalysis/preview",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
+    async def confirm_item_reanalysis(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+        preview_id: UUID,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/wardrobe/items/{item_id}/reanalysis/{preview_id}/confirm",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
+    async def discard_item_reanalysis(
+        self,
+        *,
+        telegram_user_id: int,
+        display_name: str | None,
+        item_id: UUID,
+        preview_id: UUID,
+    ) -> None:
+        await self._raw_request(
+            "DELETE",
+            f"/v1/wardrobe/items/{item_id}/reanalysis/{preview_id}",
+            headers=self._identity_headers(telegram_user_id, display_name),
+        )
+
     async def _upload_item(
         self,
         *,

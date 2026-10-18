@@ -20,7 +20,8 @@ Implemented and locally verified:
   formatted style-profile sections;
 - `/check` with Classification, Matching Evidence, Contrasting Evidence, and
   Subjective Qualifier sections;
-- feedback actions for Fits my taste, Not my taste, Bought it, and Passed on it;
+- two separately labeled feedback questions after `/check`: Fits my taste or Not
+  my taste, followed by Bought it or Passed on it;
 - `/suggestion` with intent and category selection, three initial generated
   references, an optional two more, controls below the images, and Stop
   Generating;
@@ -40,6 +41,10 @@ V1 is working as a local MVP. It is not yet production-ready.
   working as expected.
 - [x] Collect initial feedback from test users. Users reported that AURA works,
   while identifying general user-experience improvements to address later.
+- [x] Separate `/check` feedback into clearly labeled taste and purchase-decision
+  questions while retaining the existing independent feedback categories.
+- [x] Replace each answered feedback prompt and its buttons with a persistent
+  confirmation that names the recorded taste or decision response.
 
 ### V1: Work Immediately Before Submission
 
@@ -142,6 +147,21 @@ Validation completed after the user-facing template improvement pass:
 - Telegram test suite: 38 passed;
 - request references verified across Telegram client errors and FastAPI responses.
 
+Validation completed after separating the feedback questions and adding persistent
+answer confirmations:
+
+- Telegram test suite: 42 passed;
+- backend feedback service and API tests: 7 passed;
+- existing `TASTE` and `DECISION` persistence categories remain unchanged.
+
+Validation completed after user-triggered item reanalysis:
+
+- backend test suite: 101 passed;
+- Telegram test suite: 44 passed;
+- reanalysis migration `20261018020000` applied and verified on linked Supabase;
+- preview, confirmation, discard, manual-correction replacement warning, profile
+  rebuild, and rollback behavior covered by automated tests.
+
 ### V2: Planned or Deferred
 
 - [ ] Review and prioritize user-experience improvements from tester feedback.
@@ -149,9 +169,10 @@ Validation completed after the user-facing template improvement pass:
   smoother to use; specific changes will be agreed before implementation.
 - [x] Remove the standalone `/remove` command and keep item removal inside
   `/wardrobe` to avoid duplicate user flows.
-- [ ] Consider an explicit user-triggered **Reanalyze Item** action for old
-  uploads. Do not automatically reprocess existing items because results and
-  provider costs could change without user intent.
+- [x] Add an explicit user-triggered **Reanalyze Item** action for old uploads.
+  It warns before consuming AI credits, previews current and proposed analyses,
+  requires save or discard confirmation, preserves provenance, and safely rebuilds
+  or rolls back the profile. Existing items are never reprocessed automatically.
 - [ ] Build a consented evaluation dataset from corrections and feedback before
   attempting learned personalization or model training.
 - [ ] Revisit learned personalization only after enough high-quality user data

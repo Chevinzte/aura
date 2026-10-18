@@ -30,19 +30,24 @@ from aura_telegram.messages import (
     correction_instruction_message,
     correction_preview_message,
     correction_saved_message,
+    decision_feedback_message,
     fashion_preference_message,
     fashion_preference_saved_message,
+    feedback_received_message,
     help_message,
     owned_batch_message,
     owned_item_message,
     owned_item_name,
     profile_mutation_message,
     profile_message,
+    reanalysis_preview_message,
+    reanalysis_saved_message,
     suggestion_caption,
     suggestion_category_message,
     suggestion_controls_message,
     suggestion_finished_message,
     suggestion_intro_message,
+    taste_feedback_message,
     wardrobe_item_message,
 )
 
@@ -74,7 +79,8 @@ WARDROBE_PATTERN = re.compile(
     r"^(?:wd:[0-9a-fA-F-]{36}|wdp:[1-9][0-9]*|wde:[0-9a-fA-F-]{36}|"
     r"wdf:(?:item_name|item_type|colours|patterns|materials|textures|style_traits|"
     r"shape_traits|decorative_details):[0-9a-fA-F-]{36}|wdb|wdi|wdx|wca|"
-    r"wcc:[yn]|wdr:[0-9a-fA-F-]{36}|wrr:[yn])$"
+    r"wcc:[yn]|wdr:[0-9a-fA-F-]{36}|wrr:[yn]|wra:[0-9a-fA-F-]{36}|"
+    r"wrs:[yn]|wrc:[yn])$"
 )
 
 
@@ -413,7 +419,6 @@ async def handle_suggestion_action(
             reply_markup=reply_markup,
         )
         return
-
     context.user_data.pop(SUGGESTION_STATE_KEY, None)
     await query.message.reply_text(
         suggestion_controls_message(
@@ -583,6 +588,136 @@ async def handle_wardrobe_action(
             reply_markup=_wardrobe_item_keyboard(item_id),
         )
         return
+    if action.startswith("wra:"):
+        item_id = UUID(action.removeprefix("wra:"))
+        state.update({"item_id": str(item_id), "stage": "confirm_reanalysis_start"})
+        await query.answer()
+        await _edit_callback_message(
+            query,
+            (
+                "<b>Reanalyze Item?</b>\n\n"
+                "AURA will run the latest visual-analysis pipeline on the stored photo. "
+                "This uses AI credits and may produce different details.\n\n"
+                "You will review the new analysis before anything changes."
+            ),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(
+                [[
+                    InlineKeyboardButton("Start Reanalysis", callback_data="wrs:y"),
+                    InlineKeyboardButton("Cancel", callback_data="wrs:n"),
+                ]]
+            ),
+        )
+        return
+    if action == "wrs:n":
+        await query.answer("Cancelled")
+        state.update({"stage": "view"})
+        await _edit_callback_message(
+            query,
+            "Reanalysis cancelled. No changes were made.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Back to Item", callback_data="wdi")]]
+            ),
+        )
+        return
+    if action == "wrs:y":
+        try:
+            item_id = UUID(str(state["item_id"]))
+        except (KeyError, ValueError):
+            await query.answer("This reanalysis request has expired.", show_alert=True)
+            return
+        await query.answer()
+        await _edit_callback_message(query, "Reanalyzing the stored photo.")
+        try:
+            payload = await _backend_client(context).preview_item_reanalysis(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=item_id,
+            )
+            preview_id = UUID(str(payload["preview_id"]))
+        except (BackendAPIError, KeyError, ValueError) as error:
+            message = (
+                _backend_error_text(error)
+                if isinstance(error, BackendAPIError)
+                else "AURA returned an invalid reanalysis preview. Please retry."
+            )
+            await _edit_callback_message(
+                query,
+                message,
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("Back to Item", callback_data="wdi")]]
+                ),
+            )
+            return
+        state.update({"preview_id": str(preview_id), "stage": "review_reanalysis"})
+        await _edit_callback_message(
+            query,
+            reanalysis_preview_message(payload),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(
+                [[
+                    InlineKeyboardButton("Save New Analysis", callback_data="wrc:y"),
+                    InlineKeyboardButton("Discard", callback_data="wrc:n"),
+                ]]
+            ),
+        )
+        return
+    if action.startswith("wrc:"):
+        if state.get("stage") != "review_reanalysis":
+            await query.answer("This reanalysis preview has expired.", show_alert=True)
+            return
+        try:
+            item_id = UUID(str(state["item_id"]))
+            preview_id = UUID(str(state["preview_id"]))
+        except (KeyError, ValueError):
+            await query.answer("This reanalysis preview has expired.", show_alert=True)
+            return
+        client = _backend_client(context)
+        if action == "wrc:n":
+            try:
+                await client.discard_item_reanalysis(
+                    telegram_user_id=user.id,
+                    display_name=user.first_name or user.username or None,
+                    item_id=item_id,
+                    preview_id=preview_id,
+                )
+            except BackendAPIError as error:
+                await query.answer(_backend_error_text(error), show_alert=True)
+                return
+            state.update({"stage": "view"})
+            state.pop("preview_id", None)
+            await query.answer("New analysis discarded")
+            await _edit_callback_message(
+                query,
+                "New analysis discarded. Your current item and profile were unchanged.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("Back to Item", callback_data="wdi")]]
+                ),
+            )
+            return
+        await query.answer()
+        await _edit_callback_message(query, "Saving reanalysis and rebuilding your profile...")
+        try:
+            payload = await client.confirm_item_reanalysis(
+                telegram_user_id=user.id,
+                display_name=user.first_name or user.username or None,
+                item_id=item_id,
+                preview_id=preview_id,
+            )
+        except BackendAPIError as error:
+            await _edit_callback_message(query, _backend_error_text(error))
+            return
+        page = state.get("page", 1)
+        state.clear()
+        state["page"] = page
+        await _edit_callback_message(
+            query,
+            reanalysis_saved_message(payload),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Back to Wardrobe", callback_data="wdb")]]
+            ),
+        )
+        return
     if action.startswith("wde:"):
         item_id = UUID(action.removeprefix("wde:"))
         state.update({"item_id": str(item_id), "stage": "choose_field"})
@@ -715,7 +850,7 @@ async def handle_wardrobe_action(
             await query.answer("This correction has expired.", show_alert=True)
             return
         await query.answer()
-        await query.edit_message_text("Saving correction and rebuilding your profile…")
+        await query.edit_message_text("Saving correction and rebuilding your profile...")
         try:
             payload = await _backend_client(context).apply_item_correction(
                 telegram_user_id=user.id,
@@ -839,6 +974,7 @@ def _wardrobe_item_keyboard(item_id: UUID) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("Edit Item Details", callback_data=f"wde:{item_id}")],
+            [InlineKeyboardButton("Reanalyze Item", callback_data=f"wra:{item_id}")],
             [InlineKeyboardButton("Remove Item", callback_data=f"wdr:{item_id}")],
             [InlineKeyboardButton("Back to Wardrobe", callback_data="wdb")],
             [InlineKeyboardButton("Close", callback_data="wdx")],
@@ -1051,8 +1187,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     if mode == CANDIDATE_MODE:
         match_id = payload.get("match_id")
-        reply_markup = _feedback_keyboard(str(match_id)) if match_id else None
-        await progress.edit_text(response_text, reply_markup=reply_markup)
+        await progress.edit_text(response_text)
+        if match_id:
+            await message.reply_text(
+                taste_feedback_message(),
+                reply_markup=_taste_feedback_keyboard(str(match_id)),
+            )
+            await message.reply_text(
+                decision_feedback_message(),
+                reply_markup=_decision_feedback_keyboard(str(match_id)),
+            )
     else:
         await progress.edit_text(response_text)
 
@@ -1204,7 +1348,9 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except BackendAPIError as error:
         await query.answer(_backend_error_text(error), show_alert=True)
         return
-    await query.answer("Feedback saved. Thank you!")
+    feedback_type = match.group("feedback_type")
+    await query.answer("Feedback received")
+    await query.edit_message_text(feedback_received_message(feedback_type))
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1236,16 +1382,23 @@ def _backend_client(context: ContextTypes.DEFAULT_TYPE) -> AuraBackendClient:
     return client
 
 
-def _feedback_keyboard(match_id: str) -> InlineKeyboardMarkup:
+def _taste_feedback_keyboard(match_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton("👍 Fits my taste", callback_data=f"fb:{match_id}:LIKE"),
                 InlineKeyboardButton("👎 Not my taste", callback_data=f"fb:{match_id}:DISLIKE"),
-            ],
+            ]
+        ]
+    )
+
+
+def _decision_feedback_keyboard(match_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
             [
                 InlineKeyboardButton("🛍 Bought it", callback_data=f"fb:{match_id}:BOUGHT"),
-                InlineKeyboardButton("Passed on it", callback_data=f"fb:{match_id}:NOT_BOUGHT"),
-            ],
+                InlineKeyboardButton("🚫 Passed on it", callback_data=f"fb:{match_id}:NOT_BOUGHT"),
+            ]
         ]
     )

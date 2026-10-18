@@ -58,11 +58,15 @@ starts the backend and Telegram bot together, and stops both when you press
   concepts and varies secondary profile traits across sessions. Images are
   inspiration only and are not shopping recommendations or profile inputs.
 - `/wardrobe` browses uploaded belongings ten per page. Selecting an item shows
-  its stored private image and current analysis, with actions to correct or remove it.
+  its stored private image and current analysis, with actions to correct, reanalyze,
+  or remove it.
 - **Edit Item Details** shows the selected field's current value, accepts natural
   typed corrections with comma-separated values, normalizes common synonyms and
   colour names, then shows a before-and-after preview. Saving preserves the
   original AI analysis, creates a versioned correction, and rebuilds the profile.
+- **Reanalyze Item** reruns the current AI pipeline only after an AI-cost warning,
+  shows the current and proposed analyses, and changes the profile only after the
+  user confirms. Discarding keeps the current item and profile unchanged.
 - `/resetprofile` clears all owned items from the active profile after confirmation.
 - `/help` displays the command guide and photo tips.
 - `/done` exits the current upload mode.

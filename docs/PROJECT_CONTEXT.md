@@ -23,7 +23,8 @@ The current system can:
 - show a richer evidence-based profile summary without repeating every displayed trait;
 - propagate non-secret request references for operational failure diagnosis;
 - browse uploaded belongings with their retained private images;
-- apply confirmed, versioned corrections to selected owned-item feature fields.
+- apply confirmed, versioned corrections to selected owned-item feature fields;
+- reanalyze a selected owned item with explicit cost, preview, and save confirmations.
 
 The FastAPI backend, Telegram client, Supabase schema, storage integration, AI
 adapters, deterministic profile aggregation, matching logic, and automated tests
@@ -107,7 +108,8 @@ aura/
 6. The user can inspect the profile with `/profile`.
 7. The user uses `/check` to evaluate an owned or prospective item.
 8. AURA returns a classification with matching and contrasting evidence.
-9. The user can submit taste and purchase-decision feedback.
+9. Telegram asks two separately labeled questions: whether the item suits the
+   user's taste and what purchase decision they made.
 10. The user can use `/wardrobe` or `/resetprofile` to change profile inputs.
 
 Current commands:
@@ -122,7 +124,8 @@ Current commands:
 - `/settings`: choose Menswear, Womenswear, Gender-neutral, or No preference for
   generated clothing ideas;
 - `/wardrobe`: browse owned belongings ten per page, view the stored image and
-  effective analysis, correct one guided field, or remove the item;
+  effective analysis, correct one guided field, reanalyze with confirmation, or
+  remove the item;
 - `/resetprofile`: confirm removal of all owned profile inputs;
 - `/help`: display command and image guidance;
 - `/done`: leave the current upload mode.
@@ -232,6 +235,13 @@ effective corrected features. Profile snapshots record both the source analysis
 and correction identifier for explainability. If rebuilding fails, AURA restores
 the previously active correction.
 
+**Reanalyze Item** is explicitly user-triggered and warns about AI cost before any
+provider call. AURA analyzes the retained private image, displays a current-versus-
+proposed preview, and requires Save New Analysis or Discard. Saving creates an
+accepted `AI_REANALYSIS` feature revision, replaces any active manual correction,
+and rebuilds the profile. Discarding changes nothing. The original analysis and
+previous accepted revisions remain available for provenance and rollback.
+
 ## Item Visual Features V1
 
 Each usable item can include:
@@ -309,6 +319,13 @@ provides clearer wording for limited evidence and absent contrasts. Matching sco
 thresholds, and classification rules remain on scoring version 1.
 
 ## Feedback
+
+Telegram presents feedback as two independent labeled questions. **Does this item
+suit your taste?** captures `LIKE` or `DISLIKE`. **What did you decide?** captures
+`BOUGHT` or `NOT_BOUGHT`; users may return to the decision buttons later. After a
+choice is saved, Telegram replaces that question and its buttons with a persistent
+**Feedback received** confirmation naming the recorded response. The other question
+remains available until it is answered.
 
 Supported feedback values are:
 

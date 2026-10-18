@@ -408,6 +408,65 @@ def test_profile_management_rpcs_return_removed_items() -> None:
     assert client.rpc_calls[1][0] == "reset_owned_profile_items"
 
 
+def test_reanalysis_repository_uses_preview_activation_and_discard_rpcs() -> None:
+    from aura_backend.application.wardrobe import CorrectionField
+
+    client = FakeSupabaseClient()
+    repository = AuraRepository(client)  # type: ignore[arg-type]
+    revision_id = uuid4()
+    user_id = uuid4()
+    item_id = uuid4()
+    feature_id = uuid4()
+    embedding = SemanticEmbedding(
+        provider="gateway",
+        model="embedding-model",
+        dimensions=2,
+        schema_version=1,
+        values=[1.0, 0.0],
+    )
+    pipeline = FeaturePipelineVersion(
+        vision_provider="gateway",
+        vision_model="vision-model",
+        vision_prompt_version=1,
+        feature_schema_version=1,
+        embedding_provider="gateway",
+        embedding_model="embedding-model",
+        embedding_dimensions=2,
+        embedding_schema_version=1,
+    )
+
+    repository.create_item_reanalysis_preview(
+        revision_id=revision_id,
+        user_id=user_id,
+        item_id=item_id,
+        source_features_id=feature_id,
+        features=make_features(),
+        canonical_embedding_text="item_type: handbag",
+        embedding=embedding,
+        corrected_fields=list(CorrectionField),
+        pipeline=pipeline,
+    )
+    repository.activate_item_reanalysis(
+        user_id=user_id,
+        item_id=item_id,
+        revision_id=revision_id,
+    )
+    repository.discard_item_reanalysis(
+        user_id=user_id,
+        item_id=item_id,
+        revision_id=revision_id,
+    )
+
+    assert [name for name, _ in client.rpc_calls] == [
+        "create_item_reanalysis_preview",
+        "activate_item_reanalysis",
+        "discard_item_reanalysis",
+    ]
+    assert client.rpc_calls[0][1]["p_corrected_fields"] == [
+        field.value for field in CorrectionField
+    ]
+
+
 def test_suggestion_history_loads_and_records_concepts() -> None:
     from aura_backend.application.suggestions import (
         SuggestionCategory,

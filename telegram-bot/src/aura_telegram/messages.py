@@ -236,6 +236,8 @@ def wardrobe_item_message(payload: dict[str, Any]) -> str:
     if isinstance(corrected_fields, list) and corrected_fields:
         labels = [correction_field_label(str(value)) for value in corrected_fields]
         sections.append(f"<b>User-corrected:</b> {escape(', '.join(labels))}")
+    if payload.get("revision_kind") == "AI_REANALYSIS":
+        sections.append("<b>Analysis:</b> User-confirmed reanalysis")
     created_at = payload.get("created_at")
     if isinstance(created_at, str) and len(created_at) >= 10:
         sections.append(f"<b>Added:</b> {escape(created_at[:10])}")
@@ -340,6 +342,67 @@ def correction_saved_message(payload: dict[str, Any]) -> str:
     )
 
 
+def reanalysis_preview_message(payload: dict[str, Any]) -> str:
+    current = payload.get("current_features")
+    proposed = payload.get("proposed_features")
+    if not isinstance(current, dict) or not isinstance(proposed, dict):
+        return "AURA could not display the reanalysis preview."
+    sections = [
+        "<b>Review Reanalysis</b>",
+        _reanalysis_feature_summary("Current Analysis", current),
+        _reanalysis_feature_summary("New Analysis", proposed),
+        (
+            "Saving uses the new analysis to rebuild your profile. The previous "
+            "analysis remains preserved."
+        ),
+    ]
+    if payload.get("replaces_manual_corrections"):
+        sections.append(
+            "<b>Important:</b> Saving replaces the item's current manual corrections."
+        )
+    return "\n\n".join(sections)
+
+
+def reanalysis_saved_message(payload: dict[str, Any]) -> str:
+    item_count = payload.get("usable_item_count")
+    if payload.get("profile_status") == "READY":
+        return (
+            "Reanalysis saved. Your style profile was rebuilt from "
+            f"{item_count} usable belongings."
+        )
+    return (
+        "Reanalysis saved. AURA updated the item while your profile continues "
+        "collecting enough usable belongings."
+    )
+
+
+def _reanalysis_feature_summary(label: str, features: dict[str, Any]) -> str:
+    values = [
+        "Name: "
+        + _short_preview_value(
+            _feature_text(features, "itemName", "item_name") or "Not recorded",
+            56,
+        ),
+        f"Type: {_short_preview_value(_item_type_text(features), 40)}",
+    ]
+    colours = correction_value(features, "colours")
+    if colours != "Not recorded":
+        values.append(f"Colours: {_short_preview_value(colours, 64)}")
+    for field, display_label in (
+        ("style_traits", "Style"),
+        ("materials", "Materials"),
+        ("shape_traits", "Shape"),
+    ):
+        value = correction_value(features, field)
+        if value != "Not recorded":
+            values.append(f"{display_label}: {_short_preview_value(value, 48)}")
+    return f"<b>{escape(label)}:</b>\n" + "\n".join(escape(value) for value in values)
+
+
+def _short_preview_value(value: str, limit: int) -> str:
+    return value if len(value) <= limit else value[: limit - 3].rstrip() + "..."
+
+
 def profile_mutation_message(payload: dict[str, Any]) -> str:
     status = payload.get("status")
     item_count = payload.get("usable_item_count", 0)
@@ -381,6 +444,31 @@ def candidate_message(payload: dict[str, Any]) -> str:
         return explanation.strip()
     classification = str(match.get("classification", "UNCERTAIN")).replace("_", " ").title()
     return f"{classification}. Based on your uploaded belongings, this result is subjective guidance."
+
+
+def taste_feedback_message() -> str:
+    return (
+        "Does this item suit your taste?\n\n"
+        "Choose the option that best reflects your personal style."
+    )
+
+
+def decision_feedback_message() -> str:
+    return (
+        "What did you decide?\n\n"
+        "You can answer now or return to these buttons after making your decision."
+    )
+
+
+def feedback_received_message(feedback_type: str) -> str:
+    labels = {
+        "LIKE": ("Taste", "Fits my taste"),
+        "DISLIKE": ("Taste", "Not my taste"),
+        "BOUGHT": ("Decision", "Bought it"),
+        "NOT_BOUGHT": ("Decision", "Passed on it"),
+    }
+    category, choice = labels[feedback_type]
+    return f"✅ Feedback received\n\n{category}: {choice}"
 
 
 def profile_message(payload: dict[str, Any]) -> str:
@@ -535,6 +623,10 @@ def backend_error_message(code: str, reference_id: str | None = None) -> str:
             "AURA could not safely apply that correction. Your previous analysis and "
             "profile were kept. Please retry."
         ),
+        "WARDROBE_REANALYSIS_UNAVAILABLE": (
+            "AURA could not safely reanalyze that item. The current analysis and "
+            "profile were kept. Please retry shortly."
+        ),
     }
     message = messages.get(
         code,
@@ -555,6 +647,7 @@ def backend_error_message(code: str, reference_id: str | None = None) -> str:
         "IMAGE_GENERATION_FAILED",
         "WARDROBE_UNAVAILABLE",
         "WARDROBE_CORRECTION_UNAVAILABLE",
+        "WARDROBE_REANALYSIS_UNAVAILABLE",
     }
     if reference_id and (code in reference_codes or code not in messages):
         return f"{message}\n\nReference: {reference_id}"

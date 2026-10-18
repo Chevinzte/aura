@@ -4,19 +4,24 @@ from aura_telegram.messages import (
     correction_instruction_message,
     correction_preview_message,
     correction_saved_message,
+    decision_feedback_message,
     fashion_preference_message,
     fashion_preference_saved_message,
+    feedback_received_message,
     help_message,
     owned_batch_message,
     owned_item_message,
     owned_item_name,
     profile_mutation_message,
     profile_message,
+    reanalysis_preview_message,
+    reanalysis_saved_message,
     suggestion_caption,
     suggestion_category_message,
     suggestion_controls_message,
     suggestion_finished_message,
     suggestion_intro_message,
+    taste_feedback_message,
     wardrobe_item_message,
 )
 
@@ -80,6 +85,25 @@ def test_help_message_explains_batch_size_and_optional_captions() -> None:
 def test_candidate_message_uses_backend_explanation_verbatim() -> None:
     explanation = "Moderate Fit. The colours align."
     assert candidate_message({"match": {"explanation": explanation}}) == explanation
+
+
+def test_feedback_questions_explain_the_two_independent_signals() -> None:
+    taste = taste_feedback_message()
+    decision = decision_feedback_message()
+
+    assert taste.startswith("Does this item suit your taste?")
+    assert "personal style" in taste
+    assert decision.startswith("What did you decide?")
+    assert "return to these buttons" in decision
+
+
+def test_feedback_confirmation_names_the_recorded_choice() -> None:
+    assert feedback_received_message("LIKE") == (
+        "✅ Feedback received\n\nTaste: Fits my taste"
+    )
+    assert feedback_received_message("DISLIKE").endswith("Taste: Not my taste")
+    assert feedback_received_message("BOUGHT").endswith("Decision: Bought it")
+    assert feedback_received_message("NOT_BOUGHT").endswith("Decision: Passed on it")
 
 
 def test_profile_not_ready_error_gives_actionable_guidance() -> None:
@@ -260,6 +284,38 @@ def test_wardrobe_messages_show_features_and_correction_provenance() -> None:
     assert "Examples You Can Enter:</b> linen | cotton blend" in instruction
     assert "replaces this entire field" in instruction
     assert "profile was rebuilt" in correction_saved_message(
+        {"profile_status": "READY", "usable_item_count": 6}
+    )
+
+
+def test_reanalysis_messages_compare_versions_and_warn_about_corrections() -> None:
+    current = {
+        "itemName": "Blue shirt",
+        "itemType": {"value": "shirt"},
+        "colours": [{"name": "blue"}],
+        "styleTraits": [{"value": "casual"}],
+    }
+    proposed = {
+        "itemName": "Navy overshirt",
+        "itemType": {"value": "overshirt"},
+        "colours": [{"name": "navy"}],
+        "styleTraits": [{"value": "minimal"}],
+    }
+    preview = reanalysis_preview_message(
+        {
+            "current_features": current,
+            "proposed_features": proposed,
+            "replaces_manual_corrections": True,
+        }
+    )
+
+    assert "Current Analysis" in preview
+    assert "Name: Blue shirt" in preview
+    assert "New Analysis" in preview
+    assert "Name: Navy overshirt" in preview
+    assert "replaces the item's current manual corrections" in preview
+    assert len(preview) <= 1024
+    assert "profile was rebuilt" in reanalysis_saved_message(
         {"profile_status": "READY", "usable_item_count": 6}
     )
 

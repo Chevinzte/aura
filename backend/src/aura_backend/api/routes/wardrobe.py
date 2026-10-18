@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from pydantic import BaseModel, Field
 
 from aura_backend.api.dependencies import get_wardrobe_service
+from aura_backend.application.item_analysis import ItemAnalysisFailed
 from aura_backend.application.wardrobe import (
     CORRECTION_EXAMPLES,
     CorrectionField,
@@ -39,6 +40,7 @@ class WardrobeItemResponse(BaseModel):
     created_at: datetime
     features: ItemVisualFeaturesV1
     corrected_fields: list[CorrectionField]
+    revision_kind: str | None = None
 
 
 class CorrectionRequest(BaseModel):
@@ -61,6 +63,21 @@ class CorrectionOptionResponse(BaseModel):
     field: CorrectionField
     input_hint: str
     examples: list[str] = Field(default_factory=list)
+
+
+class ReanalysisPreviewResponse(BaseModel):
+    preview_id: UUID
+    item_id: UUID
+    current_features: ItemVisualFeaturesV1
+    proposed_features: ItemVisualFeaturesV1
+    replaces_manual_corrections: bool
+
+
+class ReanalysisResultResponse(BaseModel):
+    item_id: UUID
+    features: ItemVisualFeaturesV1
+    profile_status: str
+    usable_item_count: int
 
 
 @router.get("/correction-options", response_model=list[CorrectionOptionResponse])
@@ -154,6 +171,7 @@ def get_wardrobe_item(
         created_at=item.created_at,
         features=item.features,
         corrected_fields=item.corrected_fields,
+        revision_kind=item.revision_kind,
     )
 
 
@@ -180,6 +198,110 @@ def get_wardrobe_item_image(
             "WARDROBE_UNAVAILABLE",
         ) from error
     return Response(content=image.data, media_type=image.mime_type)
+
+
+@router.post(
+    "/items/{item_id}/reanalysis/preview",
+    response_model=ReanalysisPreviewResponse,
+)
+async def preview_item_reanalysis(
+    item_id: UUID,
+    telegram_user_id: Annotated[int, Header(alias="X-Telegram-User-Id")],
+    service: Annotated[WardrobeService, Depends(get_wardrobe_service)],
+    display_name: Annotated[
+        str | None, Header(alias="X-Telegram-Display-Name", max_length=200)
+    ] = None,
+) -> ReanalysisPreviewResponse:
+    try:
+        preview = await service.preview_reanalysis(
+            telegram_user_id=telegram_user_id,
+            display_name=display_name,
+            item_id=item_id,
+        )
+    except WardrobeItemNotFound as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "WARDROBE_ITEM_NOT_FOUND") from error
+    except ItemAnalysisFailed as error:
+        response_status = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if error.error_code == "IMAGE_UNUSABLE"
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        raise HTTPException(response_status, error.error_code) from error
+    except WardrobePersistenceError as error:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "WARDROBE_REANALYSIS_UNAVAILABLE",
+        ) from error
+    return ReanalysisPreviewResponse(
+        preview_id=preview.preview_id,
+        item_id=preview.item_id,
+        current_features=preview.current_features,
+        proposed_features=preview.proposed_features,
+        replaces_manual_corrections=preview.replaces_manual_corrections,
+    )
+
+
+@router.post(
+    "/items/{item_id}/reanalysis/{preview_id}/confirm",
+    response_model=ReanalysisResultResponse,
+)
+def confirm_item_reanalysis(
+    item_id: UUID,
+    preview_id: UUID,
+    telegram_user_id: Annotated[int, Header(alias="X-Telegram-User-Id")],
+    service: Annotated[WardrobeService, Depends(get_wardrobe_service)],
+    display_name: Annotated[
+        str | None, Header(alias="X-Telegram-Display-Name", max_length=200)
+    ] = None,
+) -> ReanalysisResultResponse:
+    try:
+        result = service.confirm_reanalysis(
+            telegram_user_id=telegram_user_id,
+            display_name=display_name,
+            item_id=item_id,
+            preview_id=preview_id,
+        )
+    except WardrobeItemNotFound as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "WARDROBE_ITEM_NOT_FOUND") from error
+    except WardrobePersistenceError as error:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "WARDROBE_REANALYSIS_UNAVAILABLE",
+        ) from error
+    return ReanalysisResultResponse(
+        item_id=result.item_id,
+        features=result.features,
+        profile_status=result.profile.status,
+        usable_item_count=result.profile.usable_item_count,
+    )
+
+
+@router.delete(
+    "/items/{item_id}/reanalysis/{preview_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def discard_item_reanalysis(
+    item_id: UUID,
+    preview_id: UUID,
+    telegram_user_id: Annotated[int, Header(alias="X-Telegram-User-Id")],
+    service: Annotated[WardrobeService, Depends(get_wardrobe_service)],
+    display_name: Annotated[
+        str | None, Header(alias="X-Telegram-Display-Name", max_length=200)
+    ] = None,
+) -> Response:
+    try:
+        service.discard_reanalysis(
+            telegram_user_id=telegram_user_id,
+            display_name=display_name,
+            item_id=item_id,
+            preview_id=preview_id,
+        )
+    except WardrobePersistenceError as error:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "WARDROBE_REANALYSIS_UNAVAILABLE",
+        ) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
