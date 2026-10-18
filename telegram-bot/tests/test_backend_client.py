@@ -12,6 +12,7 @@ def test_owned_upload_sends_identity_and_multipart_image() -> None:
         assert request.url.path == "/v1/items/owned"
         assert request.headers["X-Telegram-User-Id"] == "123"
         assert request.headers["X-Telegram-Display-Name"] == "AURA User"
+        assert len(request.headers["X-Request-ID"]) == 12
         assert request.headers["Content-Type"].startswith("multipart/form-data")
         return httpx.Response(201, json={"status": "READY"})
 
@@ -270,7 +271,11 @@ def test_wardrobe_requests_use_backend_contract() -> None:
 
 def test_backend_error_detail_is_preserved() -> None:
     async def handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(409, json={"detail": "PROFILE_NOT_READY"})
+        return httpx.Response(
+            409,
+            json={"detail": "PROFILE_NOT_READY"},
+            headers={"X-Request-ID": "BACKEND12345"},
+        )
 
     client = AuraBackendClient(
         base_url="http://backend.test",
@@ -290,3 +295,4 @@ def test_backend_error_detail_is_preserved() -> None:
     run(client.close())
 
     assert error.value.status_code == 409
+    assert error.value.reference_id == "BACKEND12345"

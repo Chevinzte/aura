@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from aura_backend.application.preferences import FashionPresentation
     from aura_backend.application.profile_management import ProfileItemSummary
     from aura_backend.application.profiles import ProfileInput
+    from aura_backend.application.suggestions import SuggestionCategory, SuggestionIntent
     from aura_backend.application.wardrobe import (
         CorrectionField,
         WardrobeItemRecord,
@@ -730,6 +731,58 @@ class AuraRepository:
         if not all(isinstance(row, dict) for row in response.data):
             raise RepositoryError("Malformed rows while resetting owned profile items")
         return len(response.data)
+
+    def list_recent_suggestion_labels(
+        self,
+        *,
+        user_id: UUID,
+        limit: int,
+    ) -> list[str]:
+        response = (
+            self._client.table("suggestion_history")
+            .select("label")
+            .eq("user_id", str(user_id))
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        if not isinstance(response.data, list):
+            raise RepositoryError("Expected rows while loading suggestion history")
+        labels: list[str] = []
+        for row in response.data:
+            if not isinstance(row, dict) or not isinstance(row.get("label"), str):
+                raise RepositoryError("Malformed suggestion history row")
+            labels.append(row["label"])
+        return labels
+
+    def record_suggestion_history(
+        self,
+        *,
+        user_id: UUID,
+        intent: SuggestionIntent,
+        category: SuggestionCategory,
+        concepts: list[tuple[str, str]],
+    ) -> None:
+        if not concepts:
+            return
+        response = (
+            self._client.table("suggestion_history")
+            .insert(
+                [
+                    {
+                        "user_id": str(user_id),
+                        "intent": intent.value,
+                        "category": category.value,
+                        "label": label,
+                        "item_type": item_type,
+                    }
+                    for label, item_type in concepts
+                ]
+            )
+            .execute()
+        )
+        if not isinstance(response.data, list) or len(response.data) != len(concepts):
+            raise RepositoryError("Expected rows while recording suggestion history")
 
     def save_match_analysis(
         self,

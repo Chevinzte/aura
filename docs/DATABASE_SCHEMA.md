@@ -357,6 +357,24 @@ Category and type consistency is enforced:
 The application verifies that the match belongs to the user. Feedback remains
 evaluation data in MVP version 1 and does not trigger profile rebuilding.
 
+### `suggestion_history`
+
+Stores lightweight generated-concept metadata used to reduce repetition across
+suggestion sessions. Generated images and raw prompts are not stored.
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| `id` | `uuid` | Primary key |
+| `user_id` | `uuid` | Required, references `users(id)` |
+| `intent` | `text` | Required; one accepted suggestion intent |
+| `category` | `text` | Required; one accepted suggestion category |
+| `label` | `text` | Required, 1–120 characters |
+| `item_type` | `text` | Required, 1–120 characters |
+| `created_at` | `timestamptz` | Required, default `now()` |
+
+The backend reads recent labels, prioritizes unseen or least-recent catalogue
+entries, and records only successfully generated concepts.
+
 ## Relationships
 
 ```text
@@ -364,6 +382,7 @@ users
   1 -> many items
   1 -> many aesthetic_profiles
   1 -> many match_analyses
+  1 -> many suggestion_history rows
 
 items
   1 -> many item_visual_features
@@ -385,7 +404,7 @@ match_analyses
 
 ## Indexes
 
-The initial migration creates:
+The applied migrations create:
 
 - unique B-tree index on `users(telegram_user_id)`;
 - B-tree index on `items(user_id, created_at desc)` where `deleted_at is null`;
@@ -399,7 +418,8 @@ The initial migration creates:
 - B-tree index on `match_analyses(user_id, created_at desc)`;
 - B-tree index on `match_analyses(candidate_item_id, created_at desc)`;
 - B-tree index on `match_analyses(status, created_at)` for retry workers;
-- B-tree index on `feedback(user_id, created_at desc)`.
+- B-tree index on `feedback(user_id, created_at desc)`;
+- B-tree index on `suggestion_history(user_id, created_at desc)`.
 
 No vector index is created initially. If later evaluation demonstrates a need,
 the index type and operator class must match the chosen distance measure and
@@ -487,6 +507,8 @@ MVP defaults are:
 - Retain historical feature analyses, profiles, matches, and feedback to preserve
   explainability and support evaluation.
 - Retain inactive correction versions so profile snapshots remain explainable.
+- Retain suggestion concept metadata to reduce repetition; do not retain generated
+  suggestion images or raw image-generation prompts.
 - Do not retain raw provider responses or hidden reasoning in production.
 - Soft-delete individual items first so historical references remain valid.
 - Exclude soft-deleted items from all new profiles and analyses.
@@ -514,6 +536,7 @@ when storage deletion partially fails.
 - Match analyses cascade during user deletion but should otherwise be protected
   from accidental deletion through backend authorization.
 - Feedback cascades from its match analysis.
+- Suggestion history cascades from its user.
 
 The application normally soft-deletes items. Hard deletion is reserved for full
 user deletion or an explicit administrative privacy workflow.
@@ -569,6 +592,8 @@ Production logs must not include:
 9. Create the private `item-images` bucket and storage restrictions.
 10. Verify cascade, idempotency, active-profile, and feedback constraints with
     migration-level tests.
+11. Add private suggestion-concept history when cross-session diversity is
+    introduced; do not persist generated suggestion images or prompts.
 
 ## Deferred Decisions
 

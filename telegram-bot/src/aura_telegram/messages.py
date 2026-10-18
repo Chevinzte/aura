@@ -107,13 +107,11 @@ def help_message() -> str:
         "image when omitted.\n\n"
         "/check — Compare a new item with your current style profile.\n\n"
         "/profile — See what AURA has learned from your uploaded belongings.\n\n"
-        "/wardrobe — Browse uploaded belongings and stored photos. Use Edit Item "
-        "Details to view current values, type corrections, and preview changes "
-        "before saving.\n\n"
+        "/wardrobe — Browse uploaded belongings ten per page with their stored photos. "
+        "Use Edit Item Details to view current values, type corrections, and preview "
+        "changes before saving, or remove an item from your profile.\n\n"
         "/settings — Choose whether generated clothing ideas should use menswear, "
         "womenswear, gender-neutral fashion, or no presentation preference.\n\n"
-        "/remove — Browse uploaded belongings ten per page and remove one from your "
-        "profile after confirmation.\n\n"
         "/resetprofile — Clear all uploaded belongings and restart your profile.\n\n"
         "/done — Exit the current photo-upload mode."
     )
@@ -127,7 +125,12 @@ def suggestion_intro_message(fashion_presentation: str | None = None) -> str:
         "Safe Extension stays close to your established preferences.\n\n"
         "Intentional Contrast adds one controlled difference while keeping the item "
         "coherent with your profile.\n\n"
-        "Surprise Me explores a tasteful variation.\n\n"
+        "Surprise Me keeps one or two familiar style anchors while exploring a less "
+        "familiar shape, material, detail, or accent colour.\n\n"
+        "Please note: AURA creates ideas from your current style profile. If your "
+        "profile has only a few items or similar belongings, some suggestions may "
+        "look alike. Add more varied items to broaden AURA's understanding of your "
+        "preferences.\n\n"
         "After choosing a direction, choose a wardrobe category or Any Category. "
         "AURA will generate three single-item reference images. You can then request "
         "two more. These are inspiration, not shopping recommendations."
@@ -467,7 +470,7 @@ def _display_values(values: object) -> list[str]:
     ]
 
 
-def backend_error_message(code: str) -> str:
+def backend_error_message(code: str, reference_id: str | None = None) -> str:
     messages = {
         "PROFILE_NOT_READY": (
             "Your aesthetic profile is not ready yet. Use /add and upload at least five "
@@ -520,7 +523,7 @@ def backend_error_message(code: str) -> str:
             "AURA could not generate reference images right now. Please retry shortly."
         ),
         "OWNED_ITEM_NOT_FOUND": (
-            "That belonging is no longer available in your profile. Use /remove to refresh the list."
+            "That belonging is no longer available in your profile. Use /wardrobe to refresh the list."
         ),
         "WARDROBE_ITEM_NOT_FOUND": (
             "That belonging is no longer available. Use /wardrobe to refresh the list."
@@ -533,7 +536,29 @@ def backend_error_message(code: str) -> str:
             "profile were kept. Please retry."
         ),
     }
-    return messages.get(code, "Something went wrong while contacting AURA. Please try again.")
+    message = messages.get(
+        code,
+        "Something went wrong while contacting AURA. Please try the command again.",
+    )
+    reference_codes = {
+        "BACKEND_UNAVAILABLE",
+        "ITEM_PROCESSING_UNAVAILABLE",
+        "CANDIDATE_PROCESSING_UNAVAILABLE",
+        "VISION_ANALYSIS_FAILED",
+        "EMBEDDING_GENERATION_FAILED",
+        "INVALID_BACKEND_RESPONSE",
+        "BACKEND_REQUEST_FAILED",
+        "PROFILE_READ_UNAVAILABLE",
+        "PROFILE_MANAGEMENT_UNAVAILABLE",
+        "SUGGESTION_PROCESSING_UNAVAILABLE",
+        "PREFERENCES_UNAVAILABLE",
+        "IMAGE_GENERATION_FAILED",
+        "WARDROBE_UNAVAILABLE",
+        "WARDROBE_CORRECTION_UNAVAILABLE",
+    }
+    if reference_id and (code in reference_codes or code not in messages):
+        return f"{message}\n\nReference: {reference_id}"
+    return message
 
 
 def _feature_text(features: dict[str, Any], camel_key: str, snake_key: str) -> str:

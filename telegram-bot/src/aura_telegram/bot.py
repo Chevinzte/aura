@@ -36,7 +36,6 @@ from aura_telegram.handlers import (
     show_help,
     show_profile,
     show_settings,
-    remove_profile_item,
     request_profile_reset,
     request_suggestions,
     start,
@@ -63,7 +62,6 @@ def build_application(settings: BotSettings) -> Application:
                     BotCommand("suggestion", "Build on your style profile"),
                     BotCommand("settings", "Set suggestion fashion preference"),
                     BotCommand("wardrobe", "Browse and correct your belongings"),
-                    BotCommand("remove", "Remove one uploaded belonging"),
                     BotCommand("resetprofile", "Clear and restart your profile"),
                     BotCommand("help", "Show the AURA command guide"),
                     BotCommand("done", "Exit photo-upload mode"),
@@ -87,7 +85,6 @@ def build_application(settings: BotSettings) -> Application:
     application.add_handler(CommandHandler("suggestion", request_suggestions))
     application.add_handler(CommandHandler("settings", show_settings))
     application.add_handler(CommandHandler("wardrobe", browse_wardrobe))
-    application.add_handler(CommandHandler("remove", remove_profile_item))
     application.add_handler(CommandHandler("resetprofile", request_profile_reset))
     application.add_handler(CommandHandler("help", show_help))
     application.add_handler(CommandHandler("done", done))

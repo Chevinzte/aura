@@ -8,7 +8,7 @@ from io import BytesIO
 import logging
 import re
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from telegram import (
     InlineKeyboardButton,
@@ -61,8 +61,7 @@ FEEDBACK_PATTERN = re.compile(
     r"^fb:(?P<match_id>[0-9a-fA-F-]{36}):(?P<feedback_type>LIKE|DISLIKE|BOUGHT|NOT_BOUGHT)$"
 )
 PROFILE_ACTION_PATTERN = re.compile(
-    r"^(?:rm:[0-9a-fA-F-]{36}|rmc:[0-9a-fA-F-]{36}|rmp:[1-9][0-9]*|"
-    r"rmx|rst:y|rst:n)$"
+    r"^rst:[yn]$"
 )
 SUGGESTION_PATTERN = re.compile(
     r"^(?:sug:(SAFE_EXTENSION|INTENTIONAL_CONTRAST|SURPRISE_ME|MORE|FINISH)|"
@@ -105,15 +104,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [
             ["/add", "/check"],
             ["/profile", "/suggestion"],
-            ["/wardrobe", "/remove", "/resetprofile"],
+            ["/wardrobe", "/resetprofile"],
             ["/settings", "/help", "/done"],
         ],
         resize_keyboard=True,
     )
     await update.effective_message.reply_text(
-        "Welcome to AURA. I learn your visual preferences from belongings you like, "
-        "then explain how a new item may fit or contrast with them.\n\n"
-        "Use /add to upload 5–10 belongings you like. Use /check when your profile "
+        "Welcome to AURA, an AI-powered personal style assistant. I learn your "
+        "visual preferences from clothes and accessories you like, then explain how a "
+        "new item may fit or contrast with them.\n\n"
+        "Use /add to upload 5–10 items you like. Use /check when your profile "
         "is ready and you want to evaluate another item. Use /profile to see what "
         "AURA has learned.",
         reply_markup=keyboard,
@@ -136,7 +136,7 @@ async def request_suggestions(
             display_name=display_name,
         )
     except BackendAPIError as error:
-        await message.reply_text(backend_error_message(error.code))
+        await message.reply_text(_backend_error_text(error))
         return
     preference = payload.get("fashion_presentation")
     if not isinstance(preference, str):
@@ -165,7 +165,7 @@ async def show_settings(
             display_name=user.first_name or user.username or None,
         )
     except BackendAPIError as error:
-        await message.reply_text(backend_error_message(error.code))
+        await message.reply_text(_backend_error_text(error))
         return
     preference = payload.get("fashion_presentation")
     await message.reply_text(
@@ -194,7 +194,7 @@ async def handle_preference_action(
             fashion_presentation=preference,
         )
     except BackendAPIError as error:
-        await query.answer(backend_error_message(error.code), show_alert=True)
+        await query.answer(_backend_error_text(error), show_alert=True)
         return
     await query.answer("Preference saved")
     if destination == "suggestion":
@@ -339,7 +339,7 @@ async def handle_suggestion_action(
             error.code,
             error.status_code,
         )
-        await query.edit_message_text(backend_error_message(error.code))
+        await query.edit_message_text(_backend_error_text(error))
         return
 
     suggestions = payload.get("suggestions")
@@ -472,7 +472,7 @@ async def _wardrobe_page_content(
             page=page,
         )
     except BackendAPIError as error:
-        return backend_error_message(error.code), None
+        return _backend_error_text(error), None
     items = payload.get("items")
     if not isinstance(items, list) or not items:
         if page == 1:
@@ -570,7 +570,7 @@ async def handle_wardrobe_action(
                 item_id=item_id,
             )
         except BackendAPIError as error:
-            await query.edit_message_text(backend_error_message(error.code))
+            await query.edit_message_text(_backend_error_text(error))
             return
         state.update({"item_id": str(item_id), "stage": "view"})
         image_file = BytesIO(image_data)
@@ -608,7 +608,7 @@ async def handle_wardrobe_action(
                 item_id=UUID(item_id_text),
             )
         except BackendAPIError as error:
-            await query.answer(backend_error_message(error.code), show_alert=True)
+            await query.answer(_backend_error_text(error), show_alert=True)
             return
         option = next((value for value in options if value.get("field") == field), None)
         if option is None:
@@ -676,7 +676,7 @@ async def handle_wardrobe_action(
             await query.answer("This editing session has expired.", show_alert=True)
             return
         except BackendAPIError as error:
-            await query.answer(backend_error_message(error.code), show_alert=True)
+            await query.answer(_backend_error_text(error), show_alert=True)
             return
         state.update({"stage": "view"})
         await query.answer()
@@ -725,7 +725,7 @@ async def handle_wardrobe_action(
                 values=values,
             )
         except BackendAPIError as error:
-            await query.edit_message_text(backend_error_message(error.code))
+            await query.edit_message_text(_backend_error_text(error))
             return
         page = state.get("page", 1)
         state.clear()
@@ -771,7 +771,7 @@ async def handle_wardrobe_action(
                 item_id=item_id,
             )
         except BackendAPIError as error:
-            await query.answer(backend_error_message(error.code), show_alert=True)
+            await query.answer(_backend_error_text(error), show_alert=True)
             return
         await query.answer("Belonging removed")
         await query.edit_message_caption(caption=profile_mutation_message(payload))
@@ -820,7 +820,7 @@ async def handle_correction_text(
                 "Please type another value. Your current item has not changed."
             )
         else:
-            await message.reply_text(backend_error_message(error.code))
+            await message.reply_text(_backend_error_text(error))
         return
     state.update({"values": values, "stage": "confirm"})
     await message.reply_text(
@@ -936,104 +936,11 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             error.code,
             error.status_code,
         )
-        await message.reply_text(backend_error_message(error.code))
+        await message.reply_text(_backend_error_text(error))
         return
     if not payload.get("display_name"):
         payload["display_name"] = display_name or "there"
     await message.reply_text(profile_message(payload), parse_mode=ParseMode.HTML)
-
-
-async def remove_profile_item(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    message = update.effective_message
-    user = update.effective_user
-    if message is None or user is None:
-        return
-    text, reply_markup = await _remove_page_content(
-        context=context,
-        user=user,
-        page=1,
-    )
-    await message.reply_text(text, reply_markup=reply_markup)
-
-
-async def _remove_page_content(
-    *,
-    context: ContextTypes.DEFAULT_TYPE,
-    user: User,
-    page: int,
-) -> tuple[str, InlineKeyboardMarkup | None]:
-    try:
-        payload = await _backend_client(context).list_profile_items(
-            telegram_user_id=user.id,
-            display_name=user.first_name or user.username or None,
-            page=page,
-        )
-    except BackendAPIError as error:
-        logger.warning(
-            "AURA backend request failed: code=%s status=%s",
-            error.code,
-            error.status_code,
-        )
-        return backend_error_message(error.code), None
-
-    items = payload.get("items")
-    if not isinstance(items, list) or not items:
-        if page == 1:
-            return (
-                "You do not have any uploaded belongings to remove. Use /add to begin.",
-                None,
-            )
-        return (
-            "There are no belongings on this page.",
-            InlineKeyboardMarkup(
-                [
-                    [InlineKeyboardButton("Previous", callback_data=f"rmp:{page - 1}")],
-                    [InlineKeyboardButton("Cancel", callback_data="rmx")],
-                ]
-            ),
-        )
-    buttons = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        item_id = item.get("item_id")
-        label = item.get("label")
-        if isinstance(item_id, str) and isinstance(label, str):
-            created_at = item.get("created_at")
-            date_label = (
-                f" · {created_at[:10]}"
-                if isinstance(created_at, str) and len(created_at) >= 10
-                else ""
-            )
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        f"{label[:38]}{date_label}",
-                        callback_data=f"rm:{item_id}",
-                    )
-                ]
-            )
-    if not buttons:
-        return "AURA could not display your uploaded belongings.", None
-    navigation = []
-    if payload.get("has_previous") is True and page > 1:
-        navigation.append(
-            InlineKeyboardButton("Previous", callback_data=f"rmp:{page - 1}")
-        )
-    if payload.get("has_next") is True:
-        navigation.append(InlineKeyboardButton("Next", callback_data=f"rmp:{page + 1}"))
-    if navigation:
-        buttons.append(navigation)
-    buttons.append([InlineKeyboardButton("Cancel", callback_data="rmx")])
-    resolved_page = payload.get("page") if isinstance(payload.get("page"), int) else page
-    return (
-        f"Choose the belonging you want to remove from your style profile:\n\n"
-        f"Page {resolved_page}",
-        InlineKeyboardMarkup(buttons),
-    )
 
 
 async def request_profile_reset(
@@ -1064,59 +971,24 @@ async def handle_profile_action(
     if query is None or not isinstance(query.data, str):
         return
     action = query.data
-    if action in {"rmx", "rst:n"}:
+    if action == "rst:n":
         await query.answer("Cancelled")
         await query.edit_message_text("No changes were made to your style profile.")
-        return
-    if action.startswith("rmp:"):
-        await query.answer()
-        text, reply_markup = await _remove_page_content(
-            context=context,
-            user=query.from_user,
-            page=int(action.removeprefix("rmp:")),
-        )
-        await query.edit_message_text(text, reply_markup=reply_markup)
-        return
-    if action.startswith("rm:"):
-        item_id = action.removeprefix("rm:")
-        await query.answer()
-        await query.edit_message_text(
-            "Remove this belonging from your style profile?",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "Remove",
-                            callback_data=f"rmc:{item_id}",
-                        ),
-                        InlineKeyboardButton("Cancel", callback_data="rmx"),
-                    ]
-                ]
-            ),
-        )
         return
 
     user = query.from_user
     try:
-        client = _backend_client(context)
-        if action.startswith("rmc:"):
-            payload = await client.remove_profile_item(
-                telegram_user_id=user.id,
-                display_name=user.first_name or user.username or None,
-                item_id=UUID(action.removeprefix("rmc:")),
-            )
-        else:
-            payload = await client.reset_profile(
-                telegram_user_id=user.id,
-                display_name=user.first_name or user.username or None,
-            )
+        payload = await _backend_client(context).reset_profile(
+            telegram_user_id=user.id,
+            display_name=user.first_name or user.username or None,
+        )
     except BackendAPIError as error:
         logger.warning(
             "AURA backend request failed: code=%s status=%s",
             error.code,
             error.status_code,
         )
-        await query.answer(backend_error_message(error.code), show_alert=True)
+        await query.answer(_backend_error_text(error), show_alert=True)
         return
     await query.answer("Profile updated")
     await query.edit_message_text(profile_mutation_message(payload))
@@ -1163,11 +1035,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             error.code,
             error.status_code,
         )
-        await progress.edit_text(backend_error_message(error.code))
+        await progress.edit_text(_backend_error_text(error))
         return
     except Exception:
-        logger.exception("Unexpected Telegram photo handling failure")
-        await progress.edit_text("Something went wrong while processing that photo. Please retry.")
+        reference_id = _new_reference_id()
+        logger.exception(
+            "Unexpected Telegram photo handling failure: reference=%s",
+            reference_id,
+        )
+        await progress.edit_text(
+            "Something went wrong while processing that photo. Please retry.\n\n"
+            f"Reference: {reference_id}"
+        )
         return
 
     if mode == CANDIDATE_MODE:
@@ -1271,7 +1150,7 @@ async def _process_owned_album_after_settle(
                     error.code,
                     error.status_code,
                 )
-                failures.append((item_number, backend_error_message(error.code)))
+                failures.append((item_number, _backend_error_text(error)))
             except Exception:
                 logger.exception("Unexpected Telegram batch item handling failure")
                 failures.append((item_number, "Unexpected processing error. Please retry."))
@@ -1322,18 +1201,32 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             match_id=UUID(match.group("match_id")),
             feedback_type=match.group("feedback_type"),
         )
-    except BackendAPIError:
-        await query.answer("Feedback could not be saved. Please retry.", show_alert=True)
+    except BackendAPIError as error:
+        await query.answer(_backend_error_text(error), show_alert=True)
         return
     await query.answer("Feedback saved. Thank you!")
 
 
 async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.exception("Unhandled Telegram update error", exc_info=context.error)
+    reference_id = _new_reference_id()
+    logger.exception(
+        "Unhandled Telegram update error: reference=%s",
+        reference_id,
+        exc_info=context.error,
+    )
     if isinstance(update, Update) and update.effective_message is not None:
         await update.effective_message.reply_text(
-            "Something unexpected happened. Please try the command again."
+            "Something unexpected happened. Please try the command again.\n\n"
+            f"Reference: {reference_id}"
         )
+
+
+def _backend_error_text(error: BackendAPIError) -> str:
+    return backend_error_message(error.code, error.reference_id)
+
+
+def _new_reference_id() -> str:
+    return uuid4().hex[:12].upper()
 
 
 def _backend_client(context: ContextTypes.DEFAULT_TYPE) -> AuraBackendClient:

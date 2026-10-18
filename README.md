@@ -54,16 +54,15 @@ starts the backend and Telegram bot together, and stops both when you press
   category: Tops, Outerwear, Pants, Accessories, Footwear, or Any Category. It
   generates three profile-guided wardrobe reference images and can generate two
   more, up to five per interaction. Controls appear below each generated batch,
-  and the user can finish after the first three. Images are inspiration only and
-  are not shopping recommendations or profile inputs.
+  and the user can finish after the first three. AURA avoids recently generated
+  concepts and varies secondary profile traits across sessions. Images are
+  inspiration only and are not shopping recommendations or profile inputs.
 - `/wardrobe` browses uploaded belongings ten per page. Selecting an item shows
   its stored private image and current analysis, with actions to correct or remove it.
 - **Edit Item Details** shows the selected field's current value, accepts natural
   typed corrections with comma-separated values, normalizes common synonyms and
   colour names, then shows a before-and-after preview. Saving preserves the
   original AI analysis, creates a versioned correction, and rebuilds the profile.
-- `/remove` lists owned items ten per page with Previous and Next controls, then
-  removes one after confirmation.
 - `/resetprofile` clears all owned items from the active profile after confirmation.
 - `/help` displays the command guide and photo tips.
 - `/done` exits the current upload mode.
@@ -76,9 +75,9 @@ analysis.
 ## Current Status
 
 The local MVP is implemented and manually verified across `/add`, `/profile`,
-`/check`, feedback buttons, `/suggestion`, `/remove`, and `/resetprofile`.
+`/check`, feedback buttons, `/suggestion`, `/wardrobe`, and `/resetprofile`.
 V2.1 adds fashion-presentation settings for suggestions and clearer,
-item-specific `/check` explanations. V2.2 adds a private wardrobe browser and
+item-specific version 5 `/check` explanations. V2.2 adds a private wardrobe browser and
 confirmed, guided corrections to owned-item analysis.
 Automated backend and Telegram test suites cover the application and client
 flows. Production deployment and Telegram-to-backend authentication remain

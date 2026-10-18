@@ -16,7 +16,6 @@ from aura_telegram.handlers import (
     handle_profile_action,
     handle_suggestion_action,
     handle_wardrobe_action,
-    remove_profile_item,
     show_profile,
     request_suggestions,
     show_settings,
@@ -193,99 +192,6 @@ def test_show_profile_uses_first_name_and_replies_with_profile() -> None:
 
     assert message.replies[0].startswith("Hello Vinz, this is your style profile")
     assert message.reply_parse_modes[0] == "HTML"
-
-
-def test_remove_profile_item_lists_owned_item_buttons() -> None:
-    item_id = "31a2b686-ffb6-4ab4-a7be-876540bca13a"
-
-    async def backend_handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={
-                "items": [
-                    {
-                        "item_id": item_id,
-                        "label": "Favorite bag",
-                        "created_at": "2026-10-16T04:00:00Z",
-                    }
-                ],
-                "page": 1,
-                "page_size": 10,
-                "has_previous": False,
-                "has_next": True,
-            },
-        )
-
-    client = AuraBackendClient(
-        base_url="http://backend.test",
-        timeout_seconds=10,
-        transport=httpx.MockTransport(backend_handler),
-    )
-    message = FakeMessage()
-    update = SimpleNamespace(
-        effective_message=message,
-        effective_user=SimpleNamespace(id=123, first_name="Vinz", username="vinz"),
-    )
-    context = SimpleNamespace(bot_data={"backend_client": client})
-
-    run(remove_profile_item(update, context))  # type: ignore[arg-type]
-    run(client.close())
-
-    assert "Choose the belonging" in message.replies[0]
-    assert message.reply_markups[0].inline_keyboard[0][0].callback_data == f"rm:{item_id}"
-    assert message.reply_markups[0].inline_keyboard[-2][0].callback_data == "rmp:2"
-
-
-def test_remove_profile_item_can_navigate_to_next_page() -> None:
-    item_id = "31a2b686-ffb6-4ab4-a7be-876540bca13a"
-
-    async def backend_handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.params["page"] == "2"
-        return httpx.Response(
-            200,
-            json={
-                "items": [
-                    {
-                        "item_id": item_id,
-                        "label": "Older bag",
-                        "created_at": "2026-10-01T04:00:00Z",
-                    }
-                ],
-                "page": 2,
-                "page_size": 10,
-                "has_previous": True,
-                "has_next": False,
-            },
-        )
-
-    class FakeQuery:
-        def __init__(self) -> None:
-            self.data = "rmp:2"
-            self.from_user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
-            self.edits: list[tuple[str, object]] = []
-
-        async def answer(self, *_: object, **__: object) -> None:
-            return None
-
-        async def edit_message_text(self, text: str, **kwargs: object) -> None:
-            self.edits.append((text, kwargs.get("reply_markup")))
-
-    client = AuraBackendClient(
-        base_url="http://backend.test",
-        timeout_seconds=10,
-        transport=httpx.MockTransport(backend_handler),
-    )
-    query = FakeQuery()
-    update = SimpleNamespace(callback_query=query)
-    context = SimpleNamespace(bot_data={"backend_client": client})
-
-    run(handle_profile_action(update, context))  # type: ignore[arg-type]
-    run(client.close())
-
-    assert "Page 2" in query.edits[0][0]
-    keyboard = query.edits[0][1].inline_keyboard
-    assert keyboard[0][0].callback_data == f"rm:{item_id}"
-    assert keyboard[-2][0].callback_data == "rmp:1"
 
 
 def test_request_suggestions_displays_intent_choices() -> None:

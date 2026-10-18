@@ -89,7 +89,7 @@ def test_matching_candidate_is_classified_as_strong_fit() -> None:
     assert len(result.matching_evidence) == 2
     assert "subjective guidance" in result.explanation
     assert "feature representation" not in result.explanation
-    assert result.explanation_version == 4
+    assert result.explanation_version == 5
     assert "This candidate bag" in result.explanation
     assert "overall feature mix overall feature mix" not in result.explanation
     sections = result.explanation.split("\n\n")
@@ -198,3 +198,81 @@ def test_matching_evidence_names_the_shared_value_not_an_unrelated_profile_value
     )
     assert "elongated" in shape_evidence.statement
     assert "structured" not in shape_evidence.statement
+
+
+def test_pattern_material_evidence_uses_natural_dimension_wording() -> None:
+    candidate = make_candidate().model_copy(
+        update={
+            "colours": [],
+            "style_traits": [],
+            "shape_traits": [],
+            "decorative_details": [],
+        }
+    )
+
+    result = CandidateMatcher().compare(
+        candidate_item_id=uuid4(),
+        profile_id=uuid4(),
+        candidate_features=candidate,
+        candidate_embedding=make_embedding([1.0, 0.0]),
+        profile=make_profile(),
+    )
+
+    evidence = next(
+        item
+        for item in result.matching_evidence
+        if item.dimension == "pattern_material"
+    )
+    assert "combines floral and leather as pattern and material features" in evidence.statement
+    assert "pattern or material details" not in evidence.statement
+
+
+def test_single_shape_value_uses_singular_evidence_wording() -> None:
+    candidate = make_candidate().model_copy(
+        update={
+            "colours": [],
+            "patterns": [],
+            "materials": [],
+            "style_traits": [],
+            "decorative_details": [],
+        }
+    )
+
+    result = CandidateMatcher().compare(
+        candidate_item_id=uuid4(),
+        profile_id=uuid4(),
+        candidate_features=candidate,
+        candidate_embedding=make_embedding([1.0, 0.0]),
+        profile=make_profile(),
+    )
+
+    evidence = next(
+        item for item in result.matching_evidence if item.dimension == "shape_detail"
+    )
+    assert "rounded as a shape or detail feature" in evidence.statement
+
+
+def test_semantic_evidence_explains_the_combined_signal() -> None:
+    candidate = make_candidate().model_copy(
+        update={
+            "colours": [],
+            "patterns": [],
+            "materials": [],
+            "style_traits": [],
+            "shape_traits": [],
+            "decorative_details": [],
+        }
+    )
+
+    result = CandidateMatcher().compare(
+        candidate_item_id=uuid4(),
+        profile_id=uuid4(),
+        candidate_features=candidate,
+        candidate_embedding=make_embedding([1.0, 0.0]),
+        profile=make_profile(),
+    )
+
+    assert result.matching_evidence[0].dimension == "semantic_embedding"
+    assert "combined visual features" in result.matching_evidence[0].statement
+    assert "no single listed trait fully explains" in result.matching_evidence[0].statement
+    assert "overall visual character" not in result.matching_evidence[0].statement

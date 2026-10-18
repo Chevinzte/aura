@@ -3,6 +3,7 @@ from __future__ import annotations
 from asyncio import gather
 from dataclasses import dataclass
 from enum import StrEnum
+import logging
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -15,6 +16,9 @@ from aura_backend.application.preferences import (
 from aura_backend.application.profiles import ProfileInput
 from aura_backend.domain.models import AestheticProfileV1, WeightedColour, WeightedFeature
 from aura_backend.repositories.supabase import FeaturePipelineVersion
+
+
+logger = logging.getLogger(__name__)
 
 
 class SuggestionIntent(StrEnum):
@@ -79,6 +83,19 @@ class SuggestionRepository(Protocol):
     def list_profile_inputs(
         self, *, user_id: UUID, pipeline: FeaturePipelineVersion
     ) -> list[ProfileInput]: ...
+
+    def list_recent_suggestion_labels(
+        self, *, user_id: UUID, limit: int
+    ) -> list[str]: ...
+
+    def record_suggestion_history(
+        self,
+        *,
+        user_id: UUID,
+        intent: SuggestionIntent,
+        category: SuggestionCategory,
+        concepts: list[tuple[str, str]],
+    ) -> None: ...
 
 
 class SuggestionService:
@@ -152,6 +169,10 @@ class SuggestionService:
                 user_id=user_id,
                 pipeline=self._pipeline,
             )
+            recent_labels = self._repository.list_recent_suggestion_labels(
+                user_id=user_id,
+                limit=30,
+            )
         except Exception as error:
             raise SuggestionPersistenceError("Could not load suggestion evidence") from error
         if active_profile is None:
@@ -164,24 +185,44 @@ class SuggestionService:
             category=category,
             count=count,
             exclude_labels=exclude_labels or [],
+            recent_labels=recent_labels,
             fashion_presentation=fashion_presentation,
         )
 
-        async def generate_plan(plan: _SuggestionPlan) -> WardrobeSuggestion | None:
+        async def generate_plan(
+            plan: _SuggestionPlan,
+        ) -> tuple[_SuggestionPlan, WardrobeSuggestion] | None:
             try:
                 image = await self._image_generator.generate(plan.prompt)
             except ImageGenerationError:
                 return None
-            return WardrobeSuggestion(
-                label=plan.label,
-                rationale=plan.rationale,
-                image=image,
+            return (
+                plan,
+                WardrobeSuggestion(
+                    label=plan.label,
+                    rationale=plan.rationale,
+                    image=image,
+                ),
             )
 
         generated = await gather(*(generate_plan(plan) for plan in plans))
-        suggestions = [suggestion for suggestion in generated if suggestion is not None]
+        successful = [result for result in generated if result is not None]
+        suggestions = [suggestion for _, suggestion in successful]
         if not suggestions:
             raise SuggestionGenerationUnavailable("No reference images were generated")
+        try:
+            self._repository.record_suggestion_history(
+                user_id=user_id,
+                intent=intent,
+                category=category,
+                concepts=[(plan.label, plan.item_type) for plan, _ in successful],
+            )
+        except Exception:
+            logger.warning(
+                "Could not record suggestion history for user %s",
+                user_id,
+                exc_info=True,
+            )
         return SuggestionResult(
             intent=intent,
             category=category,
@@ -197,9 +238,12 @@ class SuggestionService:
         category: SuggestionCategory,
         count: int,
         exclude_labels: list[str],
+        recent_labels: list[str],
         fashion_presentation: FashionPresentation,
     ) -> list[_SuggestionPlan]:
         excluded = {_normalize(value) for value in exclude_labels}
+        recent = [_normalize(value) for value in recent_labels]
+        recent_set = set(recent)
         owned_types = {_normalize(item.features.item_type.value) for item in inputs}
         category_catalog = [
             item
@@ -207,24 +251,38 @@ class SuggestionService:
             if (category == SuggestionCategory.ANY or item[2] == category)
             and _supports_presentation(item[0], fashion_presentation)
         ]
-        rotation = {
+        intent_rotation = {
             SuggestionIntent.SAFE_EXTENSION: 0,
             SuggestionIntent.INTENTIONAL_CONTRAST: 2,
             SuggestionIntent.SURPRISE_ME: 4,
         }[intent]
-        catalog = category_catalog[rotation:] + category_catalog[:rotation]
+        history_seed = sum(
+            (position + 1) * sum(ord(character) for character in label)
+            for position, label in enumerate(recent)
+        )
+        rotation = intent_rotation + history_seed
+        if category == SuggestionCategory.ANY:
+            category_catalog = _spread_categories(category_catalog, rotation)
+        position = rotation % len(category_catalog)
+        catalog = category_catalog[position:] + category_catalog[:position]
         available = [
             item
             for item in catalog
             if _normalize(item[0]) not in excluded
+            and _normalize(item[0]) not in recent_set
             and not _matches_owned_type(item[1], owned_types)
         ]
         if len(available) < count:
-            available.extend(
+            fallback = [
                 item
                 for item in catalog
                 if _normalize(item[0]) not in excluded and item not in available
+            ]
+            fallback.sort(
+                key=lambda item: _recency_rank(item[0], recent),
+                reverse=True,
             )
+            available.extend(fallback)
 
         return [
             self._plan(
@@ -234,8 +292,11 @@ class SuggestionService:
                 item_type=item_type,
                 category=item_category,
                 fashion_presentation=fashion_presentation,
+                variation_index=history_seed + plan_position,
             )
-            for label, item_type, item_category in available[:count]
+            for plan_position, (label, item_type, item_category) in enumerate(
+                available[:count]
+            )
         ]
 
     def _plan(
@@ -247,36 +308,58 @@ class SuggestionService:
         item_type: str,
         category: SuggestionCategory,
         fashion_presentation: FashionPresentation,
+        variation_index: int,
     ) -> _SuggestionPlan:
-        colours = _values(profile.colours, "name")
-        styles = _values(profile.style_traits)
-        patterns = _values(profile.patterns)
-        materials = _values(profile.materials)
-        textures = _values(profile.textures)
-        shapes = _values(profile.shape_traits)
-        details = _values(profile.decorative_details)
-        influences = _values(profile.aesthetic_signals)
+        profile_colours = _values(profile.colours, "name", limit=None)
+        colours = _rotate(_values(profile.colours, "name"), variation_index)
+        styles = _rotate(_values(profile.style_traits), variation_index + 1)
+        patterns = _rotate(_values(profile.patterns), variation_index + 2)
+        materials = _rotate(_values(profile.materials), variation_index + 3)
+        textures = _rotate(_values(profile.textures), variation_index + 4)
+        shapes = _rotate(_values(profile.shape_traits), variation_index + 5)
+        details = _rotate(_values(profile.decorative_details), variation_index + 6)
+        influences = _rotate(_values(profile.aesthetic_signals), variation_index + 7)
+        variation_focus = _variation_focus(
+            colours=colours,
+            materials=materials,
+            textures=textures,
+            shapes=shapes,
+            details=details,
+            variation_index=variation_index,
+        )
 
         familiar = ", ".join(styles[:2] or influences[:2]) or "the user's established style"
         if intent == SuggestionIntent.SAFE_EXTENSION:
-            direction = "Keep the design closely aligned with these established preferences."
-            rationale = f"Extends your {familiar} preferences with an easy new wardrobe category."
+            direction = (
+                "Keep the design closely aligned with these established preferences, "
+                f"but make this concept distinct by emphasizing {variation_focus}."
+            )
+            rationale = (
+                f"This {item_type} emphasizes {variation_focus} while extending your "
+                f"{familiar} preferences."
+            )
         elif intent == SuggestionIntent.INTENTIONAL_CONTRAST:
-            accent = _contrast_colour(colours)
+            accent = _contrast_colour(profile_colours, variation_index)
             direction = (
                 f"Introduce a controlled {accent} accent or one bolder detail while keeping "
-                "the silhouette and finish coherent with the profile."
+                "the silhouette and finish coherent with the profile. Make this concept "
+                f"distinct by emphasizing {variation_focus}."
             )
             rationale = (
-                f"Adds a controlled {accent} contrast while retaining your {familiar} foundation."
+                f"This {item_type} introduces a controlled {accent} contrast and "
+                f"emphasizes {variation_focus}, while retaining your {familiar} foundation."
             )
         else:
+            accent = _contrast_colour(profile_colours, variation_index)
             direction = (
-                "Combine the familiar profile traits with one tasteful unexpected texture, "
-                "shape, or accent colour."
+                "Use only one or two familiar profile traits as an anchor, then explore a "
+                f"noticeably less familiar silhouette, material, or detail. Emphasize "
+                f"{variation_focus} and consider a {accent} accent. Keep the result tasteful "
+                "and wearable rather than unrelated to the profile."
             )
             rationale = (
-                f"Explores a fresh variation of your {familiar} preferences without becoming an outfit."
+                f"This {item_type} explores {variation_focus} with a {accent} accent, "
+                f"anchored by your {familiar} preferences."
             )
 
         visual_profile = "; ".join(
@@ -314,10 +397,12 @@ class SuggestionService:
 def _values(
     values: list[WeightedColour] | list[WeightedFeature],
     field_name: str = "value",
+    limit: int | None = 3,
 ) -> list[str]:
+    selected = values if limit is None else values[:limit]
     return [
         str(getattr(value, field_name)).replace("_", " ")
-        for value in values[:3]
+        for value in selected
     ]
 
 
@@ -329,27 +414,92 @@ def _normalize(value: str) -> str:
     return " ".join(value.lower().replace("-", " ").replace("_", " ").split())
 
 
+def _rotate(values: list[str], offset: int) -> list[str]:
+    if len(values) < 2:
+        return values
+    position = offset % len(values)
+    return values[position:] + values[:position]
+
+
+def _spread_categories(
+    catalog: list[tuple[str, str, SuggestionCategory]],
+    offset: int,
+) -> list[tuple[str, str, SuggestionCategory]]:
+    categories = [
+        SuggestionCategory.TOPS,
+        SuggestionCategory.OUTERWEAR,
+        SuggestionCategory.PANTS,
+        SuggestionCategory.ACCESSORIES,
+        SuggestionCategory.FOOTWEAR,
+    ]
+    category_position = offset % len(categories)
+    categories = categories[category_position:] + categories[:category_position]
+    buckets = {
+        category: [item for item in catalog if item[2] == category]
+        for category in categories
+    }
+    spread: list[tuple[str, str, SuggestionCategory]] = []
+    while any(buckets.values()):
+        for category in categories:
+            if buckets[category]:
+                spread.append(buckets[category].pop(0))
+    return spread
+
+
+def _recency_rank(label: str, recent_labels: list[str]) -> int:
+    normalized = _normalize(label)
+    try:
+        return recent_labels.index(normalized)
+    except ValueError:
+        return len(recent_labels) + 1
+
+
+def _variation_focus(
+    *,
+    colours: list[str],
+    materials: list[str],
+    textures: list[str],
+    shapes: list[str],
+    details: list[str],
+    variation_index: int,
+) -> str:
+    options = [
+        f"its {values[0]} {label}"
+        for label, values in (
+            ("colour", colours),
+            ("material", materials),
+            ("texture", textures),
+            ("shape", shapes),
+            ("detail", details),
+        )
+        if values
+    ]
+    if not options:
+        return "a different proportion or finishing detail"
+    return options[variation_index % len(options)]
+
+
 def _matches_owned_type(item_type: str, owned_types: set[str]) -> bool:
     normalized = _normalize(item_type)
     return any(normalized in owned or owned in normalized for owned in owned_types)
 
 
-def _contrast_colour(profile_colours: list[str]) -> str:
+def _contrast_colour(profile_colours: list[str], variation_index: int = 0) -> str:
     existing = {_normalize(colour) for colour in profile_colours}
-    return next(
-        (
-            colour
-            for colour in (
-                "cobalt blue",
-                "deep burgundy",
-                "forest green",
-                "warm ochre",
-                "soft lavender",
-            )
-            if _normalize(colour) not in existing
-        ),
-        "contrasting accent colour",
-    )
+    choices = [
+        colour
+        for colour in (
+            "cobalt blue",
+            "deep burgundy",
+            "forest green",
+            "warm ochre",
+            "soft lavender",
+        )
+        if _normalize(colour) not in existing
+    ]
+    if not choices:
+        return "contrasting accent colour"
+    return choices[variation_index % len(choices)]
 
 
 def _supports_presentation(

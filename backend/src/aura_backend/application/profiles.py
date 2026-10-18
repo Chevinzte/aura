@@ -463,7 +463,7 @@ class ProfileReadService:
                 shape_traits=self._top_values(profile.shape_traits),
                 decorative_details=self._top_values(profile.decorative_details),
                 style_influences=self._top_values(profile.aesthetic_signals),
-                summary=profile.summary,
+                summary=self._display_summary(profile),
             ),
             generated_at=active_profile.created_at,
         )
@@ -483,3 +483,69 @@ class ProfileReadService:
             return None
         cleaned = value.strip()
         return cleaned or None
+
+    def _display_summary(self, profile: AestheticProfileV1) -> str:
+        primary_colour = profile.colours[0].name if profile.colours else None
+        primary_styles = [
+            feature.value.replace("_", " ")
+            for feature in profile.style_traits[:2]
+        ]
+        if primary_colour and primary_styles:
+            style_verb = "is" if len(primary_styles) == 1 else "are"
+            style_label = "trait" if len(primary_styles) == 1 else "traits"
+            summary = (
+                f"{primary_colour.title()} is your strongest palette anchor, while "
+                f"{self._natural_list(primary_styles)} {style_verb} your clearest "
+                f"style {style_label}."
+            )
+        elif primary_colour:
+            summary = f"{primary_colour.title()} is your strongest palette anchor."
+        elif primary_styles:
+            verb = "is" if len(primary_styles) == 1 else "are"
+            label = "trait" if len(primary_styles) == 1 else "traits"
+            summary = (
+                f"{self._natural_list(primary_styles).title()} {verb} your clearest "
+                f"style {label}."
+            )
+        else:
+            summary = "Your uploaded belongings form the current profile foundation."
+
+        supporting = [
+            f"{profile.patterns[0].value.replace('_', ' ')} patterns"
+            if profile.patterns
+            else None,
+            f"{profile.materials[0].value.replace('_', ' ')} materials"
+            if profile.materials
+            else None,
+            f"{profile.shape_traits[0].value.replace('_', ' ')} shapes"
+            if profile.shape_traits
+            else None,
+        ]
+        supporting = [value for value in supporting if value]
+        influence = (
+            profile.aesthetic_signals[0].value.replace("_", " ")
+            if profile.aesthetic_signals
+            else None
+        )
+        if supporting:
+            support_text = self._natural_list(supporting)
+            support_verb = "adds" if len(supporting) == 1 else "add"
+            summary += (
+                f" {support_text[0].upper() + support_text[1:]} "
+                f"{support_verb} definition"
+            )
+            summary += (
+                f", with {influence} as the strongest style influence."
+                if influence
+                else "."
+            )
+        elif influence:
+            summary += f" {influence.title()} is the strongest style influence."
+        return summary
+
+    def _natural_list(self, values: list[str]) -> str:
+        if len(values) == 1:
+            return values[0]
+        if len(values) == 2:
+            return f"{values[0]} and {values[1]}"
+        return ", ".join(values[:-1]) + f", and {values[-1]}"

@@ -400,7 +400,7 @@ A medium overall score alone does not imply intentional contrast. The analysis
 must identify the contrasting dimension and the features that make the rest of
 the item coherent with the profile.
 
-## Explanation V4
+## Explanation V5
 
 MVP explanations are deterministic templates populated only from stored match
 evidence. They do not require another generative-model call.
@@ -418,6 +418,10 @@ dimension-specific wording, removing repetitive feature phrases, and explaining
 uncertainty or the absence of a major contrast more directly. It changes only
 the explanation template; scoring version 1 and its classifications are unchanged.
 
+Version 5 makes dimension wording more natural and explicitly describes semantic
+evidence as similarity in the combined visual-feature signal when no single listed
+trait fully explains it. It still changes only the explanation template.
+
 Each explanation contains:
 
 - one user-facing classification;
@@ -430,7 +434,7 @@ Example:
 ```text
 Classification: Moderate Fit
 
-Matching Evidence: This navy jacket carries structured styling that also appears in your profile.
+Matching Evidence: This navy jacket uses structured styling, which also appears in your profile.
 
 Contrasting Evidence: This navy jacket uses a navy palette that introduces a clear colour contrast with your profile.
 
@@ -482,6 +486,9 @@ in MVP version 1.
 - Do not publish a match result until all required stages succeed.
 - Return stable backend error codes that any frontend can translate into
   appropriate user messaging.
+- Propagate a non-secret request reference from Telegram through the backend and
+  include it in operational failure messages so logs can be correlated without
+  exposing user data.
 
 ## Persistence Contract
 
@@ -608,7 +615,7 @@ vision_prompt_version=1
 embedding_schema_version=2
 profile_algorithm_version=1
 scoring_version=1
-explanation_version=4
+explanation_version=5
 ```
 
 Increment the relevant version when a change can alter persisted output or its

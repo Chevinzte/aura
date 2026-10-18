@@ -105,6 +105,12 @@ def test_profile_read_returns_only_display_safe_top_values() -> None:
     assert result.profile.style_traits == ["minimal", "casual", "classic"]
     assert result.profile.shape_traits == ["clean lined"]
     assert result.profile.style_influences == ["quiet luxury"]
+    assert "Cream is your strongest palette anchor" in result.profile.summary
+    assert "minimal and casual are your clearest style traits" in result.profile.summary
+    assert "cotton materials" in result.profile.summary
+    assert "clean lined shapes" in result.profile.summary
+    assert "quiet luxury as the strongest style influence" in result.profile.summary
+    assert "black" not in result.profile.summary.lower()
 
 
 def test_profile_read_wraps_repository_failures() -> None:

@@ -96,6 +96,15 @@ def test_pipeline_errors_have_specific_messages() -> None:
     assert backend_error_message("BACKEND_REQUEST_FAILED") != fallback
 
 
+def test_operational_errors_include_reference_but_input_errors_do_not() -> None:
+    operational = backend_error_message("BACKEND_UNAVAILABLE", "ABCDEF123456")
+    input_error = backend_error_message("IMAGE_UNUSABLE", "ABCDEF123456")
+
+    assert "Reference: ABCDEF123456" in operational
+    assert "try again shortly" in operational
+    assert "Reference:" not in input_error
+
+
 def test_profile_message_formats_ready_profile_with_headers() -> None:
     message = profile_message(
         {
@@ -168,7 +177,7 @@ def test_profile_message_reports_collecting_progress() -> None:
 def test_help_lists_profile_management_commands() -> None:
     message = help_message()
 
-    assert "/remove" in message
+    assert "/remove" not in message
     assert "/resetprofile" in message
     assert "/suggestion" in message
     assert "Outerwear" in message
@@ -189,6 +198,10 @@ def test_suggestion_messages_explain_scope_and_escape_html() -> None:
     assert "three single-item reference images" in intro
     assert "Fashion preference: Menswear" in intro
     assert "not shopping recommendations" in intro
+    assert "some suggestions may look alike" in intro
+    assert "Add more varied items" in intro
+    assert "one or two familiar style anchors" in intro
+    assert "less familiar shape, material, detail, or accent colour" in intro
     assert "Any Category" in category
     assert "Bag &lt;One&gt;" in caption
     assert "black &amp; white" in caption

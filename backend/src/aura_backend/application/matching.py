@@ -58,7 +58,7 @@ class CandidateMatcher:
     """Compare candidate evidence with one immutable profile snapshot."""
 
     scoring_version = 1
-    explanation_version = 4
+    explanation_version = 5
 
     def __init__(self, config: MatchingConfigV1 | None = None) -> None:
         self._config = config or MatchingConfigV1()
@@ -393,8 +393,23 @@ class CandidateMatcher:
             [self._display(value) for value in candidate_values]
         )
         subject = self._candidate_subject(candidate_name)
+        inline_subject = subject[0].lower() + subject[1:]
+        pattern_material_phrase = (
+            f"uses {candidate_text} as a pattern or material feature"
+            if len(candidate_values) == 1
+            else f"combines {candidate_text} as pattern and material features"
+        )
+        shape_detail_phrase = (
+            f"shows {candidate_text} as a shape or detail feature"
+            if len(candidate_values) == 1
+            else f"combines {candidate_text} across its shape and detailing"
+        )
         if component.dimension == MatchDimension.SEMANTIC_EMBEDDING:
-            statement = f"{subject}'s overall visual character is consistent with your profile."
+            statement = (
+                f"Taken as a whole, {inline_subject}'s combined visual features are "
+                "similar to your profile, although no single listed trait fully explains "
+                "that overall signal."
+            )
         elif contrast:
             statement = {
                 MatchDimension.COLOUR: (
@@ -402,16 +417,15 @@ class CandidateMatcher:
                     "colour contrast with your profile."
                 ),
                 MatchDimension.STYLE: (
-                    f"{subject} carries {candidate_text} styling that differs from the "
-                    "traits established in your profile."
+                    f"{subject} uses {candidate_text} styling, which differs from the "
+                    "style traits established in your profile."
                 ),
                 MatchDimension.PATTERN_MATERIAL: (
-                    f"The {candidate_text} pattern or material details in {subject.lower()} "
-                    "contrast with those represented in your profile."
+                    f"{subject} {pattern_material_phrase}, creating contrast with your "
+                    "profile."
                 ),
                 MatchDimension.SHAPE_DETAIL: (
-                    f"The {candidate_text} shape or detail traits in {subject.lower()} "
-                    "contrast with your profile."
+                    f"{subject} {shape_detail_phrase}, creating contrast with your profile."
                 ),
             }[component.dimension]
         else:
@@ -421,16 +435,16 @@ class CandidateMatcher:
                     "colours in your profile."
                 ),
                 MatchDimension.STYLE: (
-                    f"{subject} carries {candidate_text} styling that also appears in "
-                    "your profile."
+                    f"{subject} uses {candidate_text} styling, which also appears in your "
+                    "profile."
                 ),
                 MatchDimension.PATTERN_MATERIAL: (
-                    f"The {candidate_text} pattern or material details in {subject.lower()} "
-                    "also appear in your profile."
+                    f"{subject} {pattern_material_phrase}, which is also represented in "
+                    "your profile."
                 ),
                 MatchDimension.SHAPE_DETAIL: (
-                    f"The {candidate_text} shape or detail traits in {subject.lower()} "
-                    "also appear in your profile."
+                    f"{subject} {shape_detail_phrase}, which is also represented in your "
+                    "profile."
                 ),
             }[component.dimension]
         return MatchEvidence(

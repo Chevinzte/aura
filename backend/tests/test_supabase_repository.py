@@ -26,11 +26,11 @@ class FakeTable:
     def __init__(self, response_data: object) -> None:
         self.response_data = response_data
         self.operation: str | None = None
-        self.payload: dict[str, object] | None = None
+        self.payload: object | None = None
         self.filters: list[tuple[str, str]] = []
         self.requested_range: tuple[int, int] | None = None
 
-    def insert(self, payload: dict[str, object]) -> FakeTable:
+    def insert(self, payload: object) -> FakeTable:
         self.operation = "insert"
         self.payload = payload
         return self
@@ -406,6 +406,35 @@ def test_profile_management_rpcs_return_removed_items() -> None:
     assert reset_count == 1
     assert client.rpc_calls[0][0] == "remove_owned_profile_item"
     assert client.rpc_calls[1][0] == "reset_owned_profile_items"
+
+
+def test_suggestion_history_loads_and_records_concepts() -> None:
+    from aura_backend.application.suggestions import (
+        SuggestionCategory,
+        SuggestionIntent,
+    )
+
+    client = FakeSupabaseClient()
+    user_id = uuid4()
+    client.tables["suggestion_history"] = FakeTable(
+        [{"label": "Recent jacket"}, {"label": "Recent trousers"}]
+    )
+    repository = AuraRepository(client)  # type: ignore[arg-type]
+
+    labels = repository.list_recent_suggestion_labels(user_id=user_id, limit=30)
+    repository.record_suggestion_history(
+        user_id=user_id,
+        intent=SuggestionIntent.SURPRISE_ME,
+        category=SuggestionCategory.OUTERWEAR,
+        concepts=[("New jacket", "jacket"), ("New coat", "coat")],
+    )
+
+    table = client.tables["suggestion_history"]
+    assert labels == ["Recent jacket", "Recent trousers"]
+    assert table.operation == "insert"
+    assert isinstance(table.payload, list)
+    assert table.payload[0]["intent"] == "SURPRISE_ME"
+    assert table.payload[0]["category"] == "OUTERWEAR"
 
 
 def test_save_match_analysis_uses_idempotent_rpc() -> None:

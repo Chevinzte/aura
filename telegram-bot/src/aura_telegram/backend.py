@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 
@@ -9,10 +9,17 @@ import httpx
 class BackendAPIError(RuntimeError):
     """A stable error response or transport failure from the AURA backend."""
 
-    def __init__(self, code: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        status_code: int | None = None,
+        reference_id: str | None = None,
+    ) -> None:
         super().__init__(code)
         self.code = code
         self.status_code = status_code
+        self.reference_id = reference_id
 
 
 class AuraBackendClient:
@@ -287,25 +294,36 @@ class AuraBackendClient:
         )
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        reference_id = self._add_request_reference(kwargs)
         try:
             response = await self._client.request(method, path, **kwargs)
         except httpx.HTTPError as error:
-            raise BackendAPIError("BACKEND_UNAVAILABLE") from error
+            raise BackendAPIError(
+                "BACKEND_UNAVAILABLE",
+                reference_id=reference_id,
+            ) from error
 
+        response_reference = response.headers.get("X-Request-ID", reference_id)
         if response.is_error:
             code = self._error_code(response)
-            raise BackendAPIError(code, status_code=response.status_code)
+            raise BackendAPIError(
+                code,
+                status_code=response.status_code,
+                reference_id=response_reference,
+            )
         try:
             payload = response.json()
         except ValueError as error:
             raise BackendAPIError(
                 "INVALID_BACKEND_RESPONSE",
                 status_code=response.status_code,
+                reference_id=response_reference,
             ) from error
         if not isinstance(payload, dict):
             raise BackendAPIError(
                 "INVALID_BACKEND_RESPONSE",
                 status_code=response.status_code,
+                reference_id=response_reference,
             )
         return payload
 
@@ -319,6 +337,7 @@ class AuraBackendClient:
             raise BackendAPIError(
                 "INVALID_BACKEND_RESPONSE",
                 status_code=response.status_code,
+                reference_id=response.headers.get("X-Request-ID"),
             ) from error
         if not isinstance(payload, list) or not all(
             isinstance(item, dict) for item in payload
@@ -326,6 +345,7 @@ class AuraBackendClient:
             raise BackendAPIError(
                 "INVALID_BACKEND_RESPONSE",
                 status_code=response.status_code,
+                reference_id=response.headers.get("X-Request-ID"),
             )
         return payload
 
@@ -337,14 +357,29 @@ class AuraBackendClient:
         return response.content, mime_type.split(";", 1)[0]
 
     async def _raw_request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        reference_id = self._add_request_reference(kwargs)
         try:
             response = await self._client.request(method, path, **kwargs)
         except httpx.HTTPError as error:
-            raise BackendAPIError("BACKEND_UNAVAILABLE") from error
+            raise BackendAPIError(
+                "BACKEND_UNAVAILABLE",
+                reference_id=reference_id,
+            ) from error
         if response.is_error:
             code = self._error_code(response)
-            raise BackendAPIError(code, status_code=response.status_code)
+            raise BackendAPIError(
+                code,
+                status_code=response.status_code,
+                reference_id=response.headers.get("X-Request-ID", reference_id),
+            )
         return response
+
+    def _add_request_reference(self, kwargs: dict[str, Any]) -> str:
+        reference_id = uuid4().hex[:12].upper()
+        headers = dict(kwargs.get("headers") or {})
+        headers["X-Request-ID"] = reference_id
+        kwargs["headers"] = headers
+        return reference_id
 
     def _identity_headers(
         self,

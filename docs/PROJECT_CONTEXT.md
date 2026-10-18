@@ -18,7 +18,10 @@ The current system can:
 - capture taste and purchase-decision feedback;
 - display, update, and reset the user's profile through Telegram;
 - apply an optional user-selected fashion presentation to generated suggestions;
-- produce item-specific version 4 match explanations without changing scoring;
+- generate item-specific suggestion rationales with varied controlled contrasts;
+- produce item-specific version 5 match explanations without changing scoring;
+- show a richer evidence-based profile summary without repeating every displayed trait;
+- propagate non-secret request references for operational failure diagnosis;
 - browse uploaded belongings with their retained private images;
 - apply confirmed, versioned corrections to selected owned-item feature fields.
 
@@ -105,7 +108,7 @@ aura/
 7. The user uses `/check` to evaluate an owned or prospective item.
 8. AURA returns a classification with matching and contrasting evidence.
 9. The user can submit taste and purchase-decision feedback.
-10. The user can use `/remove` or `/resetprofile` to change profile inputs.
+10. The user can use `/wardrobe` or `/resetprofile` to change profile inputs.
 
 Current commands:
 
@@ -120,7 +123,6 @@ Current commands:
   generated clothing ideas;
 - `/wardrobe`: browse owned belongings ten per page, view the stored image and
   effective analysis, correct one guided field, or remove the item;
-- `/remove`: browse owned items ten per page, then select and confirm removal of one;
 - `/resetprofile`: confirm removal of all owned profile inputs;
 - `/help`: display command and image guidance;
 - `/done`: leave the current upload mode.
@@ -139,8 +141,8 @@ The local Telegram flow has been manually verified for:
   taste, Not my taste, Bought it, and Passed on it;
 - `/suggestion` intent and category selection, generated reference images, and
   the optional two-more flow;
-- `/remove` confirmation, cancellation, profile rebuilding, and navigation beyond
-  the first ten owned items;
+- `/wardrobe` browsing, guided item editing, removal confirmation, profile
+  rebuilding, and navigation beyond the first ten owned items;
 - `/resetprofile` confirmation, owned-item clearing, and progress reset.
 
 These checks establish that the local MVP works end to end with the configured
@@ -189,6 +191,13 @@ without people, outfits, brands, logos, text, or retailer claims. Suggestions do
 not create owned or candidate items, mutate the profile, or influence matching.
 Generated images are not persisted by AURA; after they are sent, they remain in
 the Telegram conversation under Telegram's normal retention behavior.
+
+AURA warns that a small or visually similar profile can produce similar ideas.
+The backend stores only generated concept metadata, never the generated image or
+raw prompt, so it can avoid recently shown concepts across sessions. Any Category
+spreads selections across wardrobe categories, secondary profile traits rotate
+between prompts, and Surprise Me allows a stronger controlled departure while
+retaining one or two familiar profile anchors.
 
 Before the first `/suggestion`, AURA asks the user to choose an optional fashion
 presentation: Menswear, Womenswear, Gender-neutral, or No preference. The user
@@ -294,9 +303,10 @@ Contrasting Evidence: [meaningful contrast or limited-overlap evidence]
 Subjective Qualifier: Based on your uploaded items, this is subjective guidance rather than a rule.
 ```
 
-Explanation version 4 names the analyzed item, uses dimension-specific phrasing,
-and provides clearer wording for limited evidence and absent contrasts. Matching
-scores, thresholds, and classification rules remain on scoring version 1.
+Explanation version 5 names the analyzed item, uses natural dimension-specific
+phrasing, clarifies when similarity comes from the combined semantic signal, and
+provides clearer wording for limited evidence and absent contrasts. Matching scores,
+thresholds, and classification rules remain on scoring version 1.
 
 ## Feedback
 
@@ -313,7 +323,8 @@ feedback. Learning from feedback is a later, explicitly designed feature.
 
 ## Profile Management and Retention
 
-`/remove` and `/resetprofile` require explicit Telegram confirmation.
+Item removal through `/wardrobe` and profile resets through `/resetprofile`
+require explicit Telegram confirmation.
 
 Removing owned items:
 
@@ -370,16 +381,26 @@ Do not initially build:
 
 ## Current Priorities
 
-The local MVP feature set and V2.1-V2.2 product features are complete. Remaining
-V1 production work should prioritize:
+The local MVP feature set and V2.1-V2.2 product features are complete. V2.2
+wardrobe browsing and guided editing have been manually verified, and initial
+test users report that the application works. General user-experience feedback
+is recorded for a later improvement pass.
+
+The following production tasks are intentionally reserved for immediately before
+submission:
 
 1. authenticating Telegram-to-backend requests before public deployment;
-2. selecting deployment providers for the FastAPI service and Telegram worker;
-3. configuring production secrets, monitoring, rate limits, backups, and cost
-   controls;
-4. evaluating classification and explanation quality on approximately 30-50
-   representative owned and candidate images;
-5. testing onboarding with real users before expanding the feature set.
+2. adding rate limits and AI-provider cost controls;
+3. configuring monitoring and actionable production error reporting;
+4. verifying Supabase database and private-storage backups;
+5. selecting hosting, configuring production secrets, and preparing deployment
+   and recovery instructions.
+
+Before that final stage, prioritize reviewing the collected user feedback and
+agreeing on the next user-experience improvements. The latest improvement pass
+added a repetition disclaimer and cross-session suggestion diversity. Broader
+classification and explanation evaluation remains desirable if the submission
+schedule permits.
 
 The detailed checklists, completed V2 scope, deferred learning work, and accepted
 session decisions are maintained in `docs/ROADMAP.md`.

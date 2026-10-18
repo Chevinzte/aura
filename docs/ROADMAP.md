@@ -26,7 +26,7 @@ Implemented and locally verified:
   Generating;
 - `/settings` for self-reported Menswear, Womenswear, Gender-neutral, or No
   preference presentation choices used only by suggestions;
-- `/remove` with confirmation, cancellation, and pagination;
+- item removal through `/wardrobe`, with confirmation, cancellation, and pagination;
 - `/resetprofile` with confirmation while retaining candidate checks and
   feedback history;
 - private Supabase image storage, PostgreSQL/pgvector persistence, migrations,
@@ -34,19 +34,61 @@ Implemented and locally verified:
 
 V1 is working as a local MVP. It is not yet production-ready.
 
-### V1: Remaining Production and Submission Work
+### V1: Completed Validation
+
+- [x] Manually test the V2.2 `/wardrobe` and guided item-editing flows. Both are
+  working as expected.
+- [x] Collect initial feedback from test users. Users reported that AURA works,
+  while identifying general user-experience improvements to address later.
+
+### V1: Work Immediately Before Submission
+
+These tasks are intentionally reserved for the final production-preparation
+stage:
 
 - [ ] Authenticate Telegram-to-backend requests before exposing the backend.
-- [ ] Select hosting for the FastAPI service and Telegram worker.
-- [ ] Configure production secrets and environment separation.
-- [ ] Add production monitoring and actionable error reporting.
-- [ ] Add per-user and provider-aware rate limits.
-- [ ] Configure and verify database and storage backups.
-- [ ] Add cost controls for vision, embeddings, and image generation.
+- [ ] Add per-user and provider-aware rate limits plus cost controls for vision,
+  embeddings, and image generation.
+- [ ] Configure production monitoring and actionable error reporting.
+- [ ] Configure and verify Supabase database and private-storage backups.
+- [ ] Select hosting for the FastAPI service and Telegram worker, configure
+  production secrets, and prepare deployment and recovery instructions.
+
+### V1: Remaining Quality Work
+
+- [x] Add a short `/suggestion` disclaimer explaining that small or visually
+  similar profiles may produce similar ideas, and that adding more varied owned
+  items can broaden the profile evidence.
+- [x] Improve suggestion diversity by remembering recent concepts, avoiding
+  repetition across sessions, rotating secondary visual traits, varying catalog
+  selection, and making **Surprise Me** more exploratory.
 - [ ] Evaluate classifications and explanations on approximately 30-50
-  representative owned and candidate images.
-- [ ] Complete short onboarding and usability tests with real users.
-- [ ] Prepare a deployment and recovery runbook for the final submission.
+  representative owned and candidate images if the submission schedule permits.
+- [ ] Review collected user feedback and implement the agreed user-experience
+  improvements before final production preparation.
+
+### User-Facing Template Audit Backlog
+
+- [x] Make `/suggestion` rationales item-specific by referencing each concept's
+  item type and selected colour, material, texture, shape, or detail variation.
+  Rotate appropriate contrast colours instead of repeatedly selecting the first
+  available fixed accent.
+- [x] Update the **Surprise Me** description in Telegram so it accurately explains
+  the stronger but controlled exploration now used by the backend.
+- [x] Improve the deterministic profile summary so it adds insight beyond repeating
+  the top three colours and style traits already displayed in `/profile`.
+- [x] Refine `/check` evidence wording for more natural singular/plural grammar and
+  less repetitive dimension phrases while preserving deterministic grounding.
+- [x] Replace or clarify the vague semantic-only `/check` evidence sentence when
+  structured visual evidence is limited.
+- [x] Make generic retry errors more actionable and propagate an operational request
+  reference from Telegram through backend logs and user-facing failure messages.
+  Production monitoring still needs to ingest and search those logs.
+
+Keep fixed templates for command guidance, progress, headers, confirmations,
+safety disclaimers, destructive-action warnings, correction previews, and known
+error mappings. Their consistency improves usability and should not be replaced
+with free-form AI text.
 
 ## V2 Roadmap
 
@@ -55,7 +97,7 @@ V1 is working as a local MVP. It is not yet production-ready.
 - [x] Fashion Presentation Preference: AURA asks before the first suggestion and
   allows later changes through `/settings`. It is never inferred from names or
   images and does not affect profile construction or `/check` scoring.
-- [x] Improved `/check` Explanations: version 4 explanations are item-specific,
+- [x] Improved `/check` Explanations: version 5 explanations are item-specific,
   evidence-grounded, structured, and retain subjective language without changing
   the deterministic score.
 
@@ -88,10 +130,25 @@ Validation completed after V2.2 implementation:
 - Supabase correction and vocabulary migrations applied remotely;
 - existing records promoted to schema revision 2 through metadata migration.
 
+Validation completed after the suggestion-diversity and command cleanup:
+
+- backend test suite: 89 passed;
+- Telegram test suite: 37 passed;
+- suggestion-history migration applied and verified on linked Supabase.
+
+Validation completed after the user-facing template improvement pass:
+
+- backend test suite: 95 passed;
+- Telegram test suite: 38 passed;
+- request references verified across Telegram client errors and FastAPI responses.
+
 ### V2: Planned or Deferred
 
-- [ ] Decide whether `/remove` remains a permanent shortcut or is eventually
-  removed from the command menu in favor of removal inside `/wardrobe`.
+- [ ] Review and prioritize user-experience improvements from tester feedback.
+  Current feedback confirms that the application works but can be easier and
+  smoother to use; specific changes will be agreed before implementation.
+- [x] Remove the standalone `/remove` command and keep item removal inside
+  `/wardrobe` to avoid duplicate user flows.
 - [ ] Consider an explicit user-triggered **Reanalyze Item** action for old
   uploads. Do not automatically reprocess existing items because results and
   provider costs could change without user intent.
