@@ -258,6 +258,5 @@ verification, restart, rollback, and recovery instructions are in
   AI Lodge, and OpenAI quotas and service health. The demonstration deployment has
   limited monitoring, rate controls, and recovery guarantees.
 
-See `docs/PROJECT_CONTEXT.md` for accepted product boundaries,
-`docs/BACKUP_AND_RECOVERY.md` for data recovery, and `docs/ROADMAP.md` for completed
-scope and deferred work.
+See `docs/PROJECT_CONTEXT.md` for accepted product boundaries and
+`docs/BACKUP_AND_RECOVERY.md` for data recovery.

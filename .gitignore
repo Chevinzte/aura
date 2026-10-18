@@ -154,6 +154,7 @@ activemq-data/
 .envrc
 .venv
 backups/
+docs/ROADMAP.md
 env/
 venv/
 ENV/

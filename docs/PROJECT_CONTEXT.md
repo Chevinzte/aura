@@ -4,9 +4,8 @@
 
 AURA's V2.3 hackathon demonstration release is implemented and deployed.
 
-Release completion, remaining V1 production work, and the V2 backlog are tracked
-in `docs/ROADMAP.md`. That file is the durable handoff when chat history is not
-available.
+The implemented release scope, product boundaries, and deferred production work
+are summarized in this document.
 
 The current system can:
 
@@ -451,9 +450,6 @@ agreeing on the next user-experience improvements. The latest improvement pass
 added a repetition disclaimer and cross-session suggestion diversity. Broader
 classification and explanation evaluation remains desirable if the submission
 schedule permits.
-
-The detailed checklists, completed V2 scope, deferred learning work, and accepted
-session decisions are maintained in `docs/ROADMAP.md`.
 
 Two possible V3 extensions are recorded for later evaluation: an optional
 **Preview on Me** visualization and a separate real-product discovery flow. They
