@@ -4,10 +4,22 @@ param()
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = $PSScriptRoot
+$environmentPath = Join-Path $repositoryRoot ".env"
 $backendDirectory = Join-Path $repositoryRoot "backend"
 $telegramDirectory = Join-Path $repositoryRoot "telegram-bot"
 $backendPython = Join-Path $backendDirectory ".venv\Scripts\python.exe"
 $telegramPython = Join-Path $telegramDirectory ".venv\Scripts\python.exe"
+
+if (-not (Test-Path -LiteralPath $environmentPath -PathType Leaf)) {
+    throw "Environment file not found: $environmentPath. Complete the README setup first."
+}
+
+$internalApiKey = Get-Content -LiteralPath $environmentPath |
+    Where-Object { $_ -match '^AURA_INTERNAL_API_KEY=' } |
+    Select-Object -First 1
+if (-not $internalApiKey -or ($internalApiKey -split '=', 2)[1].Trim('"', "'").Length -lt 32) {
+    throw "AURA_INTERNAL_API_KEY must be configured in .env with at least 32 characters."
+}
 
 foreach ($pythonPath in @($backendPython, $telegramPython)) {
     if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {

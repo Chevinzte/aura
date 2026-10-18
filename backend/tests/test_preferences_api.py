@@ -7,6 +7,9 @@ from aura_backend.application.preferences import (
 )
 from aura_backend.main import create_app
 
+INTERNAL_API_KEY = "test-internal-api-key-1234567890"
+AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_API_KEY}"}
+
 
 class FakePreferenceService:
     def get(self, **kwargs: object) -> UserPreferences:
@@ -20,9 +23,9 @@ class FakePreferenceService:
 
 
 def test_preferences_api_reads_and_updates_fashion_presentation() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_preference_service] = lambda: FakePreferenceService()
-    client = TestClient(app)
+    client = TestClient(app, headers=AUTH_HEADERS)
 
     response = client.get(
         "/v1/preferences",

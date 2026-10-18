@@ -19,12 +19,13 @@ Implemented and locally verified:
 - `/profile` with the user's Telegram display name, collection progress, and
   formatted style-profile sections;
 - `/check` with Classification, Matching Evidence, Contrasting Evidence, and
-  Subjective Qualifier sections;
+  Subjective Qualifier sections, persistent single-photo or album processing,
+  and explicit `/done` exit behavior;
 - two separately labeled feedback questions after `/check`: Fits my taste or Not
   my taste, followed by Bought it or Passed on it;
 - `/suggestion` with intent and category selection, three initial generated
-  references, an optional two more, controls below the images, and Stop
-  Generating;
+  references, an optional two more, controls below the images, setup cancellation,
+  and Finish Suggestions;
 - `/settings` for self-reported Menswear, Womenswear, Gender-neutral, or No
   preference presentation choices used only by suggestions;
 - item removal through `/wardrobe`, with confirmation, cancellation, and pagination;
@@ -45,19 +46,52 @@ V1 is working as a local MVP. It is not yet production-ready.
   questions while retaining the existing independent feedback categories.
 - [x] Replace each answered feedback prompt and its buttons with a persistent
   confirmation that names the recorded taste or decision response.
+- [x] Improve Telegram interaction continuity: keep `/check` active until `/done`,
+  support candidate albums, show explicit `/add` and `/check` mode reminders,
+  remove saved `/settings` controls, add `/suggestion` cancellation, and delete
+  selected wardrobe-item messages when returning to the browser.
 
-### V1: Work Immediately Before Submission
+### Local Demonstration: Before Submission
 
-These tasks are intentionally reserved for the final production-preparation
-stage:
+AURA will be submitted and demonstrated as a locally hosted prototype. The
+following tasks remain relevant without a cloud deployment:
 
-- [ ] Authenticate Telegram-to-backend requests before exposing the backend.
+- [x] Authenticate every `/v1` Telegram-to-backend request with a shared bearer
+  credential before trusting the asserted Telegram user identity. Keep `/health`
+  public for hosting monitoring and return request-referenced authentication errors.
+- [x] Create and verify a manual Supabase backup covering roles, schema, data,
+  Storage metadata, and all private `item-images` objects with SHA-256 manifests.
+  The current project exposes no Supabase-managed restore points and has PITR off.
+- [x] Run one final local acceptance pass using `restart-aura.ps1`, covering
+  `/add`, `/profile`, `/check`, feedback, `/suggestion`, `/wardrobe`, item editing,
+  item reanalysis, removal cancellation, and `/resetprofile` cancellation. All
+  flows passed on 18 October 2026. The editing pass also added and verified a
+  missing **Back to Editable Fields** control on the correction preview.
+- [x] Review final documentation for implemented behavior, local setup, release
+  scope, test status, backup limitations, and deferred production work.
+- [x] Manually smoke-test the latest interaction-continuity changes: persistent
+  single-photo and album `/check`, `/done`, saved `/settings`, `/suggestion`
+  cancellation, and **Back to Wardrobe** message cleanup. The user confirmed all
+  flows work correctly after implementation.
+- [x] Scan the exact staged submission files for known credential formats,
+  embedded connection credentials, sensitive paths, and suspicious secret
+  assignments. No exposed credentials were found.
+- [ ] Commit and push the submission state.
+
+### Post-Submission Production Work
+
+These tasks are deferred because the submission uses a local demonstration:
+
 - [ ] Add per-user and provider-aware rate limits plus cost controls for vision,
-  embeddings, and image generation.
+  embeddings, and image generation before allowing broader or public access.
 - [ ] Configure production monitoring and actionable error reporting.
-- [ ] Configure and verify Supabase database and private-storage backups.
+- [ ] Copy verified backups to an encrypted off-device location and complete one
+  restore drill against a disposable Supabase project before relying on recovery.
 - [ ] Select hosting for the FastAPI service and Telegram worker, configure
   production secrets, and prepare deployment and recovery instructions.
+- [ ] Run the backend and Telegram worker as always-on services with automatic
+  startup after host restarts, crash recovery, and health monitoring so normal
+  operation does not depend on manually running `restart-aura.ps1`.
 
 ### V1: Remaining Quality Work
 
@@ -69,8 +103,9 @@ stage:
   selection, and making **Surprise Me** more exploratory.
 - [ ] Evaluate classifications and explanations on approximately 30-50
   representative owned and candidate images if the submission schedule permits.
-- [ ] Review collected user feedback and implement the agreed user-experience
-  improvements before final production preparation.
+- [x] Review collected user feedback and implement the agreed user-experience
+  improvements, including persistent `/check` mode with albums, clearer mode
+  reminders, cleaned settings and wardrobe messages, and suggestion cancellation.
 
 ### User-Facing Template Audit Backlog
 
@@ -162,17 +197,39 @@ Validation completed after user-triggered item reanalysis:
 - preview, confirmation, discard, manual-correction replacement warning, profile
   rebuild, and rollback behavior covered by automated tests.
 
+Validation completed after Telegram-to-backend authentication:
+
+- backend test suite: 104 passed;
+- Telegram test suite: 45 passed;
+- missing and incorrect credentials return `401` before asserted Telegram identity
+  is trusted, while the correctly authenticated client and public `/health` route
+  are covered by automated tests;
+- `restart-aura.ps1` fails clearly when the shared secret is missing or too short.
+
+### V2.3: Completed
+
+- [x] Present taste and purchase-decision feedback as separate questions and
+  replace answered controls with clear recorded confirmations.
+- [x] Add user-triggered **Reanalyze Item** with an AI-cost warning, current versus
+  proposed preview, explicit save or discard, provenance, and profile rollback.
+- [x] Keep `/check` active until `/done`, accept candidate albums, and display
+  explicit mode reminders after individual and batch processing.
+- [x] Improve Telegram cleanliness by removing saved `/settings` controls, adding
+  `/suggestion` cancellation, and deleting selected item messages on return to
+  `/wardrobe`.
+
+Validation completed after the V2.3 interaction-continuity pass:
+
+- backend test suite: 104 passed;
+- Telegram test suite: 48 passed;
+- the earlier primary-flow acceptance pass remains valid, and the latest
+  interaction-continuity changes passed both automated coverage and the user's
+  manual Telegram smoke test.
+
 ### V2: Planned or Deferred
 
-- [ ] Review and prioritize user-experience improvements from tester feedback.
-  Current feedback confirms that the application works but can be easier and
-  smoother to use; specific changes will be agreed before implementation.
 - [x] Remove the standalone `/remove` command and keep item removal inside
   `/wardrobe` to avoid duplicate user flows.
-- [x] Add an explicit user-triggered **Reanalyze Item** action for old uploads.
-  It warns before consuming AI credits, previews current and proposed analyses,
-  requires save or discard confirmation, preserves provenance, and safely rebuilds
-  or rolls back the profile. Existing items are never reprocessed automatically.
 - [ ] Build a consented evaluation dataset from corrections and feedback before
   attempting learned personalization or model training.
 - [ ] Revisit learned personalization only after enough high-quality user data
@@ -180,6 +237,23 @@ Validation completed after user-triggered item reanalysis:
   for meaningful retraining.
 - [ ] Revisit body-type input only if AURA later supports fit-focused or outfit
   guidance. It does not currently improve the aesthetic-matching objective.
+
+### V3: Product Suggestions for Later Evaluation
+
+- [ ] **Preview on Me:** explore an optional virtual try-on visualization that
+  places an AURA suggestion onto a user-provided photo. Treat the result as an
+  artistic preview rather than a sizing or physical-fit prediction, require
+  explicit consent, minimize retention of personal photos, and keep the feature
+  separate from profile construction and `/check` scoring.
+- [ ] **Real Product Discovery:** explore a separate `/shop` flow that finds real
+  purchasable items through authorized retailer APIs or product feeds. Preserve
+  `/suggestion` as non-commercial inspiration, avoid arbitrary web scraping,
+  disclose retailer or affiliate relationships, and account for region, price,
+  availability, image-use rights, rate limits, and stale product data.
+
+Both ideas can support AURA's broader aesthetic-matching vision, but they remain
+outside the current MVP and V2 scope. Either feature requires an explicit product,
+privacy, provider, cost, and architecture decision before implementation.
 
 ## Accepted Product Decisions
 

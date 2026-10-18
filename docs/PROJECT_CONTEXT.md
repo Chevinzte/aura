@@ -22,6 +22,7 @@ The current system can:
 - produce item-specific version 5 match explanations without changing scoring;
 - show a richer evidence-based profile summary without repeating every displayed trait;
 - propagate non-secret request references for operational failure diagnosis;
+- authenticate Telegram-to-backend business requests with a shared bearer secret;
 - browse uploaded belongings with their retained private images;
 - apply confirmed, versioned corrections to selected owned-item feature fields;
 - reanalyze a selected owned item with explicit cost, preview, and save confirmations.
@@ -77,7 +78,8 @@ without rewriting the core system.
 - Embedding dimensions: 1536
 - Optional reference-image provider: OpenAI Images API
 - Reference-image model: environment-configured, initially `gpt-image-2.5-flare`
-- Deployment: not decided
+- Demonstration deployment: local Windows processes through `restart-aura.ps1`
+- Production deployment: deferred
 
 Model identifiers and provider connection details are environment configuration.
 AI providers must remain replaceable behind provider-neutral interfaces.
@@ -117,7 +119,8 @@ Current commands:
 - `/start`: show primary actions;
 - `/add`: enter owned-item upload mode and accept one photo or an album of up to ten
   different items, with one primary item per photo and optional captions;
-- `/check`: enter candidate comparison mode;
+- `/check`: enter persistent candidate comparison mode and accept individual photos
+  or albums of up to ten different candidates until `/done` is sent;
 - `/profile`: display the current profile or collection progress;
 - `/suggestion`: generate non-commercial wardrobe-building reference items from a
   ready profile, with up to five AI-generated images per interaction;
@@ -128,7 +131,7 @@ Current commands:
   remove the item;
 - `/resetprofile`: confirm removal of all owned profile inputs;
 - `/help`: display command and image guidance;
-- `/done`: leave the current upload mode.
+- `/done`: leave the current `/add` or `/check` photo mode.
 
 The Telegram command menu is refreshed automatically when the bot starts.
 
@@ -151,6 +154,8 @@ The local Telegram flow has been manually verified for:
 These checks establish that the local MVP works end to end with the configured
 Supabase, AI Lodge, OpenAI Images, and Telegram services. They do not replace
 production security, deployment, monitoring, or broader quality evaluation.
+Persistent `/check` mode and candidate-album processing additionally have
+automated Telegram coverage and remain part of the final live demonstration.
 
 ## AI Pipeline
 
@@ -327,6 +332,11 @@ choice is saved, Telegram replaces that question and its buttons with a persiste
 **Feedback received** confirmation naming the recorded response. The other question
 remains available until it is answered.
 
+Candidate comparison mode remains active after each individual check or album.
+Each album photo is processed as a separate candidate with its own explanation
+and feedback controls. Telegram clearly states whether `/add` or `/check` mode is
+still active, and `/done` exits the active mode.
+
 Supported feedback values are:
 
 - `LIKE`
@@ -361,10 +371,12 @@ Supabase server-side credentials and AI provider credentials belong only in the
 FastAPI runtime. Telegram and future clients must never access Supabase directly
 or receive server-side secrets.
 
-Telegram user ID is sufficient identity for the local MVP. Before exposing the
-backend publicly, requests from the Telegram service must be authenticated with
-an internal shared secret or equivalent private service boundary. Plain
-`X-Telegram-User-Id` headers must not be trusted from the public internet.
+Telegram user ID is sufficient end-user identity for the current Telegram client.
+Every `/v1` request is authenticated first with the shared
+`AURA_INTERNAL_API_KEY` bearer credential; only then may the backend trust the
+asserted `X-Telegram-User-Id`. The public `/health` endpoint does not expose user
+data and remains unauthenticated for hosting health checks. The shared credential
+must be configured identically and stored securely in both service runtimes.
 
 Do not introduce Supabase Auth unless a future client requires it and the change
 is discussed explicitly.
@@ -398,20 +410,25 @@ Do not initially build:
 
 ## Current Priorities
 
-The local MVP feature set and V2.1-V2.2 product features are complete. V2.2
-wardrobe browsing and guided editing have been manually verified, and initial
-test users report that the application works. General user-experience feedback
-is recorded for a later improvement pass.
+The local MVP feature set and implemented V2 features are complete. Wardrobe
+browsing, guided editing, feedback capture, and item reanalysis have been
+manually verified, and initial test users report that the application works.
+General user-experience feedback is recorded for a later improvement pass.
 
-The following production tasks are intentionally reserved for immediately before
-submission:
+The submission will use a local demonstration through `restart-aura.ps1`. The
+final local acceptance pass completed successfully on 18 October 2026, covering
+the primary Telegram flows, feedback, suggestion controls, wardrobe navigation,
+guided editing, item reanalysis, removal cancellation, and profile-reset
+cancellation. Telegram-to-backend authentication and a verified manual Supabase
+database and private-Storage backup are also complete. Before submission, review
+the staged changes for credentials, then commit and push the submission state.
+Final documentation review and the latest Telegram interaction-continuity smoke
+test are complete.
 
-1. authenticating Telegram-to-backend requests before public deployment;
-2. adding rate limits and AI-provider cost controls;
-3. configuring monitoring and actionable production error reporting;
-4. verifying Supabase database and private-storage backups;
-5. selecting hosting, configuring production secrets, and preparing deployment
-   and recovery instructions.
+Production monitoring, encrypted off-device backups, a disposable restore drill,
+cloud hosting, production secret configuration, always-on processes, automatic
+restart, hosted recovery procedures, and provider-aware rate or cost controls are
+explicitly deferred until AURA is prepared for broader or public deployment.
 
 Before that final stage, prioritize reviewing the collected user feedback and
 agreeing on the next user-experience improvements. The latest improvement pass
@@ -421,6 +438,11 @@ schedule permits.
 
 The detailed checklists, completed V2 scope, deferred learning work, and accepted
 session decisions are maintained in `docs/ROADMAP.md`.
+
+Two possible V3 extensions are recorded for later evaluation: an optional
+**Preview on Me** visualization and a separate real-product discovery flow. They
+are suggestions only and do not change AURA's current non-commercial aesthetic-
+matching scope.
 
 Do not add major technologies, database entities, AI models, scoring changes, or
 deployment architecture implicitly. Update the relevant design document and

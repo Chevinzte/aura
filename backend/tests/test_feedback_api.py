@@ -7,6 +7,9 @@ from aura_backend.api.dependencies import get_feedback_service
 from aura_backend.domain.models import FeedbackCategory, FeedbackType
 from aura_backend.main import create_app
 
+INTERNAL_API_KEY = "test-internal-api-key-1234567890"
+AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_API_KEY}"}
+
 
 class FakeFeedbackService:
     def submit(self, *, match_id, feedback_type, note, **_: object):
@@ -20,11 +23,11 @@ class FakeFeedbackService:
 
 
 def test_feedback_endpoint_returns_saved_feedback() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_feedback_service] = lambda: FakeFeedbackService()
     match_id = uuid4()
 
-    response = TestClient(app).post(
+    response = TestClient(app, headers=AUTH_HEADERS).post(
         f"/v1/matches/{match_id}/feedback",
         headers={"X-Telegram-User-Id": "123"},
         json={"feedback_type": FeedbackType.LIKE, "note": "Accurate"},
@@ -37,10 +40,10 @@ def test_feedback_endpoint_returns_saved_feedback() -> None:
 
 
 def test_feedback_endpoint_rejects_unknown_type() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_feedback_service] = lambda: FakeFeedbackService()
 
-    response = TestClient(app).post(
+    response = TestClient(app, headers=AUTH_HEADERS).post(
         f"/v1/matches/{uuid4()}/feedback",
         headers={"X-Telegram-User-Id": "123"},
         json={"feedback_type": "MAYBE"},

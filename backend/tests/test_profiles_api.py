@@ -17,6 +17,9 @@ from aura_backend.application.profile_management import (
 from aura_backend.application.profiles import ProfileDisplay, ProfilePersistenceError
 from aura_backend.main import create_app
 
+INTERNAL_API_KEY = "test-internal-api-key-1234567890"
+AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_API_KEY}"}
+
 
 class FakeProfileReadService:
     def get(self, **_: object):
@@ -75,10 +78,10 @@ class FakeProfileManagementService:
 
 
 def test_get_profile_returns_display_safe_profile() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_profile_read_service] = lambda: FakeProfileReadService()
 
-    response = TestClient(app).get(
+    response = TestClient(app, headers=AUTH_HEADERS).get(
         "/v1/profile",
         headers={
             "X-Telegram-User-Id": "123",
@@ -98,10 +101,10 @@ def test_get_profile_maps_persistence_failure() -> None:
         def get(self, **_: object):
             raise ProfilePersistenceError("failed")
 
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_profile_read_service] = lambda: FailingService()
 
-    response = TestClient(app).get(
+    response = TestClient(app, headers=AUTH_HEADERS).get(
         "/v1/profile",
         headers={"X-Telegram-User-Id": "123"},
     )
@@ -112,9 +115,9 @@ def test_get_profile_maps_persistence_failure() -> None:
 
 def test_profile_management_endpoints_list_remove_and_reset() -> None:
     service = FakeProfileManagementService()
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_profile_management_service] = lambda: service
-    client = TestClient(app)
+    client = TestClient(app, headers=AUTH_HEADERS)
     headers = {"X-Telegram-User-Id": "123"}
 
     listed = client.get("/v1/profile/items", headers=headers)
@@ -135,10 +138,10 @@ def test_remove_profile_item_hides_missing_item() -> None:
         def remove_item(self, **_: object):
             raise ProfileItemNotFound("missing")
 
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_profile_management_service] = lambda: MissingService()
 
-    response = TestClient(app).delete(
+    response = TestClient(app, headers=AUTH_HEADERS).delete(
         f"/v1/profile/items/{uuid4()}",
         headers={"X-Telegram-User-Id": "123"},
     )

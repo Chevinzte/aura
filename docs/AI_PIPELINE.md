@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted MVP design.
+Implemented MVP contract.
 
 This document defines the AI pipeline contract for AURA's MVP. Implementation
 changes that alter the models, feature schema, embedding input, profile
@@ -558,6 +558,14 @@ FastAPI routes remain thin. Telegram uploads images, requests operations, and
 displays results through the backend API; it contains no prompts, profile logic,
 matching logic, or provider-specific code.
 
+All `/v1` requests require `Authorization: Bearer <AURA_INTERNAL_API_KEY>`. The
+backend compares the shared credential without logging it, rejects missing or
+incorrect credentials before trusting `X-Telegram-User-Id`, and returns a stable
+`BACKEND_AUTHENTICATION_FAILED` error with a request reference. `/health` remains
+unauthenticated so the hosting platform can monitor process availability. The
+shared credential is a service boundary, not end-user authentication, and must
+be stored only in backend and Telegram-worker secret configuration.
+
 The profile-read contract exposes only display-safe profile information:
 collection progress, the user's display name, leading visual preferences, the
 generated summary, and the profile generation time. It must not expose feature
@@ -599,8 +607,10 @@ server-side environment configuration.
 
 ## Evaluation Plan
 
-Before declaring the MVP ready, create a private evaluation set of approximately
-30 to 50 representative belongings and candidate items.
+Before making production-quality claims, create a private evaluation set of
+approximately 30 to 50 representative belongings and candidate items. This is
+optional for the local prototype submission and remains recommended future
+quality work.
 
 The evaluation must assess separately:
 

@@ -29,14 +29,18 @@ class AuraBackendClient:
         self,
         *,
         base_url: str,
+        internal_api_key: str | None = None,
         timeout_seconds: float,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        headers = {"User-Agent": "aura-telegram-bot/0.1"}
+        if internal_api_key:
+            headers["Authorization"] = f"Bearer {internal_api_key}"
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=httpx.Timeout(timeout_seconds),
             transport=transport,
-            headers={"User-Agent": "aura-telegram-bot/0.1"},
+            headers=headers,
         )
 
     async def close(self) -> None:

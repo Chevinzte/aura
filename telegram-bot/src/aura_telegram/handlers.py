@@ -25,7 +25,9 @@ from telegram.ext import ContextTypes
 from aura_telegram.backend import AuraBackendClient, BackendAPIError
 from aura_telegram.messages import (
     backend_error_message,
+    candidate_batch_message,
     candidate_message,
+    candidate_mode_reminder,
     correction_value,
     correction_instruction_message,
     correction_preview_message,
@@ -69,7 +71,7 @@ PROFILE_ACTION_PATTERN = re.compile(
     r"^rst:[yn]$"
 )
 SUGGESTION_PATTERN = re.compile(
-    r"^(?:sug:(SAFE_EXTENSION|INTENTIONAL_CONTRAST|SURPRISE_ME|MORE|FINISH)|"
+    r"^(?:sug:(SAFE_EXTENSION|INTENTIONAL_CONTRAST|SURPRISE_ME|MORE|FINISH|CANCEL)|"
     r"sugc:(ANY|TOPS|OUTERWEAR|PANTS|ACCESSORIES|FOOTWEAR))$"
 )
 PREFERENCE_PATTERN = re.compile(
@@ -95,6 +97,8 @@ class OwnedAlbumBatch:
     user_id: int
     display_name: str | None
     progress_message: Message
+    source_message: Message
+    mode: str
     items: list[OwnedAlbumItem] = field(default_factory=list)
     skipped_count: int = 0
     revision: int = 0
@@ -211,13 +215,11 @@ async def handle_preference_action(
         return
     await query.edit_message_text(
         fashion_preference_saved_message(preference),
-        reply_markup=_fashion_preference_keyboard("settings"),
     )
 
 
 def _fashion_preference_keyboard(destination: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
+    rows = [
             [
                 InlineKeyboardButton(
                     "Menswear",
@@ -239,7 +241,9 @@ def _fashion_preference_keyboard(destination: str) -> InlineKeyboardMarkup:
                 ),
             ],
         ]
-    )
+    if destination == "suggestion":
+        rows.append([InlineKeyboardButton("Cancel", callback_data="sug:CANCEL")])
+    return InlineKeyboardMarkup(rows)
 
 
 def _suggestion_intent_keyboard() -> InlineKeyboardMarkup:
@@ -253,6 +257,7 @@ def _suggestion_intent_keyboard() -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton("Surprise Me", callback_data="sug:SURPRISE_ME")],
+            [InlineKeyboardButton("Cancel", callback_data="sug:CANCEL")],
         ]
     )
 
@@ -271,6 +276,11 @@ async def handle_suggestion_action(
         action = query.data.removeprefix("sug:")
         selected_category = None
     state = context.user_data.get(SUGGESTION_STATE_KEY)
+    if action == "CANCEL":
+        context.user_data.pop(SUGGESTION_STATE_KEY, None)
+        await query.answer("Suggestion cancelled")
+        await query.edit_message_text("Suggestion cancelled.")
+        return
     if action == "FINISH":
         context.user_data.pop(SUGGESTION_STATE_KEY, None)
         await query.answer("Suggestion session finished")
@@ -443,6 +453,7 @@ def _suggestion_category_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("Accessories", callback_data="sugc:ACCESSORIES"),
             ],
             [InlineKeyboardButton("Footwear", callback_data="sugc:FOOTWEAR")],
+            [InlineKeyboardButton("Cancel", callback_data="sug:CANCEL")],
         ]
     )
 
@@ -544,6 +555,7 @@ async def handle_wardrobe_action(
             page=page,
         )
         await query.answer()
+        await query.message.delete()
         await query.message.reply_text(text, reply_markup=markup)
         return
     if action.startswith("wdp:"):
@@ -962,10 +974,13 @@ async def handle_correction_text(
         correction_preview_message(payload, field, current_value),
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(
-            [[
-                InlineKeyboardButton("Save Correction", callback_data="wcc:y"),
-                InlineKeyboardButton("Discard Changes", callback_data="wcc:n"),
-            ]]
+            [
+                [InlineKeyboardButton("Save Correction", callback_data="wcc:y")],
+                [
+                    InlineKeyboardButton("Back to Editable Fields", callback_data="wca"),
+                    InlineKeyboardButton("Discard Changes", callback_data="wcc:n"),
+                ],
+            ]
         ),
     )
 
@@ -1034,19 +1049,27 @@ async def check_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     context.user_data[MODE_KEY] = CANDIDATE_MODE
     if update.effective_message is not None:
         await update.effective_message.reply_text(
-            "Send a clear photo of the item you want to compare with your aesthetic profile."
+            "Check mode is active. Send a clear photo or an album of up to ten "
+            "different items to compare with your aesthetic profile. Each photo is "
+            "checked separately. Use /done when finished."
         )
 
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    context.user_data.pop(MODE_KEY, None)
+    mode = context.user_data.pop(MODE_KEY, None)
     correction_cancelled = context.user_data.pop(WARDROBE_STATE_KEY, None) is not None
     if update.effective_message is not None:
         await update.effective_message.reply_text(
             (
                 "Current correction cancelled. " if correction_cancelled else ""
             )
-            + "Upload mode closed. Use /add for more belongings or /check for a comparison."
+            + (
+                "Add mode closed. Use /add when you want to add more belongings."
+                if mode == OWNED_MODE
+                else "Check mode closed. Use /check when you want another comparison."
+                if mode == CANDIDATE_MODE
+                else "No photo mode is active. Use /add or /check to begin."
+            )
         )
 
 
@@ -1140,13 +1163,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await message.reply_text("Choose /add or /check before sending a photo.")
         return
 
-    if mode == OWNED_MODE and message.media_group_id:
+    if message.media_group_id:
         await _queue_owned_album(message, user, context)
-        return
-    if mode == CANDIDATE_MODE and message.media_group_id:
-        await message.reply_text(
-            "Use /check with one photo only. Albums are supported for /add batches."
-        )
         return
 
     progress = await message.reply_text("Analyzing your photo…")
@@ -1164,7 +1182,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             payload = await _backend_client(context).upload_candidate_item(**request)
             response_text = candidate_message(payload)
-            context.user_data.pop(MODE_KEY, None)
     except BackendAPIError as error:
         logger.warning(
             "AURA backend request failed: code=%s status=%s",
@@ -1197,6 +1214,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 decision_feedback_message(),
                 reply_markup=_decision_feedback_keyboard(str(match_id)),
             )
+        await message.reply_text(candidate_mode_reminder())
     else:
         await progress.edit_text(response_text)
 
@@ -1214,12 +1232,14 @@ async def _queue_owned_album(
     batch = albums.get(media_group_id)
     if not isinstance(batch, OwnedAlbumBatch):
         progress_message = await message.reply_text(
-            f"Batch received. Collecting up to {MAX_OWNED_ALBUM_ITEMS} photos…"
+            f"Batch received. Collecting up to {MAX_OWNED_ALBUM_ITEMS} photos..."
         )
         batch = OwnedAlbumBatch(
             user_id=user.id,
             display_name=user.full_name,
             progress_message=progress_message,
+            source_message=message,
+            mode=str(context.user_data.get(MODE_KEY)),
         )
         albums[media_group_id] = batch
     if batch.processing:
@@ -1273,8 +1293,9 @@ async def _process_owned_album_after_settle(
     try:
         item_total = len(batch.items)
         for item_number, item in enumerate(batch.items, start=1):
+            operation = "Analyzing" if batch.mode == OWNED_MODE else "Checking"
             await batch.progress_message.edit_text(
-                f"Analyzing batch item {item_number} of {item_total}…"
+                f"{operation} batch item {item_number} of {item_total}…"
             )
             try:
                 request = await _photo_request(
@@ -1283,10 +1304,27 @@ async def _process_owned_album_after_settle(
                     display_name=batch.display_name,
                     item_name=item.item_name,
                 )
-                latest_payload = await _backend_client(context).upload_owned_item(**request)
-                successful_items.append(
-                    (item_number, owned_item_name(latest_payload, item.item_name))
-                )
+                if batch.mode == OWNED_MODE:
+                    latest_payload = await _backend_client(context).upload_owned_item(**request)
+                    successful_items.append(
+                        (item_number, owned_item_name(latest_payload, item.item_name))
+                    )
+                else:
+                    payload = await _backend_client(context).upload_candidate_item(**request)
+                    successful_items.append(
+                        (item_number, owned_item_name(payload, item.item_name))
+                    )
+                    await batch.source_message.reply_text(candidate_message(payload))
+                    match_id = payload.get("match_id")
+                    if match_id:
+                        await batch.source_message.reply_text(
+                            taste_feedback_message(),
+                            reply_markup=_taste_feedback_keyboard(str(match_id)),
+                        )
+                        await batch.source_message.reply_text(
+                            decision_feedback_message(),
+                            reply_markup=_decision_feedback_keyboard(str(match_id)),
+                        )
             except BackendAPIError as error:
                 logger.warning(
                     "AURA batch item failed: item=%s code=%s status=%s",
@@ -1299,14 +1337,24 @@ async def _process_owned_album_after_settle(
                 logger.exception("Unexpected Telegram batch item handling failure")
                 failures.append((item_number, "Unexpected processing error. Please retry."))
 
-        await batch.progress_message.edit_text(
-            owned_batch_message(
-                successful_items=successful_items,
-                failed_items=failures,
-                skipped_count=batch.skipped_count,
-                latest_payload=latest_payload,
+        if batch.mode == OWNED_MODE:
+            await batch.progress_message.edit_text(
+                owned_batch_message(
+                    successful_items=successful_items,
+                    failed_items=failures,
+                    skipped_count=batch.skipped_count,
+                    latest_payload=latest_payload,
+                )
             )
-        )
+        else:
+            await batch.progress_message.edit_text(
+                candidate_batch_message(
+                    successful_count=len(successful_items),
+                    failed_count=len(failures),
+                    skipped_count=batch.skipped_count,
+                )
+            )
+            await batch.source_message.reply_text(candidate_mode_reminder())
     finally:
         if albums.get(media_group_id) is batch:
             albums.pop(media_group_id, None)

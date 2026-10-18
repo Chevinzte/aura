@@ -10,6 +10,7 @@ from aura_telegram.backend import AuraBackendClient, BackendAPIError
 def test_owned_upload_sends_identity_and_multipart_image() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/items/owned"
+        assert request.headers["Authorization"] == "Bearer test-internal-key"
         assert request.headers["X-Telegram-User-Id"] == "123"
         assert request.headers["X-Telegram-Display-Name"] == "AURA User"
         assert len(request.headers["X-Request-ID"]) == 12
@@ -18,6 +19,7 @@ def test_owned_upload_sends_identity_and_multipart_image() -> None:
 
     client = AuraBackendClient(
         base_url="http://backend.test",
+        internal_api_key="test-internal-key",
         timeout_seconds=10,
         transport=httpx.MockTransport(handler),
     )

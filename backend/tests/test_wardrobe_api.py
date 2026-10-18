@@ -26,6 +26,8 @@ from aura_backend.main import create_app
 
 
 ITEM_ID = uuid4()
+INTERNAL_API_KEY = "test-internal-api-key-1234567890"
+AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_API_KEY}"}
 
 
 def make_features() -> ItemVisualFeaturesV1:
@@ -108,9 +110,9 @@ class FakeWardrobeService:
 
 
 def test_wardrobe_api_lists_details_image_and_corrections() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_wardrobe_service] = lambda: FakeWardrobeService()
-    client = TestClient(app)
+    client = TestClient(app, headers=AUTH_HEADERS)
     headers = {"X-Telegram-User-Id": "123"}
 
     listing = client.get("/v1/wardrobe", headers=headers)
@@ -137,7 +139,10 @@ def test_wardrobe_api_lists_details_image_and_corrections() -> None:
 
 
 def test_correction_options_expose_typed_input_examples() -> None:
-    response = TestClient(create_app()).get("/v1/wardrobe/correction-options")
+    response = TestClient(
+        create_app(internal_api_key=INTERNAL_API_KEY),
+        headers=AUTH_HEADERS,
+    ).get("/v1/wardrobe/correction-options")
 
     assert response.status_code == 200
     style = next(option for option in response.json() if option["field"] == "style_traits")
@@ -146,9 +151,9 @@ def test_correction_options_expose_typed_input_examples() -> None:
 
 
 def test_reanalysis_api_previews_confirms_and_discards() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_wardrobe_service] = lambda: FakeWardrobeService()
-    client = TestClient(app)
+    client = TestClient(app, headers=AUTH_HEADERS)
     headers = {"X-Telegram-User-Id": "123"}
 
     preview = client.post(

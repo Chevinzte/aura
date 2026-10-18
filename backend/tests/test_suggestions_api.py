@@ -11,6 +11,9 @@ from aura_backend.application.suggestions import (
 )
 from aura_backend.main import create_app
 
+INTERNAL_API_KEY = "test-internal-api-key-1234567890"
+AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_API_KEY}"}
+
 
 class FakeSuggestionService:
     async def generate(self, **kwargs: object) -> SuggestionResult:
@@ -31,10 +34,10 @@ class FakeSuggestionService:
 
 
 def test_suggestion_api_returns_transient_image_payload() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_suggestion_service] = lambda: FakeSuggestionService()
 
-    response = TestClient(app).post(
+    response = TestClient(app, headers=AUTH_HEADERS).post(
         "/v1/suggestions",
         headers={"X-Telegram-User-Id": "123"},
         json={
@@ -56,9 +59,9 @@ def test_suggestion_api_maps_profile_not_ready() -> None:
         async def generate(self, **_: object):
             raise SuggestionProfileNotReady("not ready")
 
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_suggestion_service] = lambda: NotReadyService()
-    response = TestClient(app).post(
+    response = TestClient(app, headers=AUTH_HEADERS).post(
         "/v1/suggestions",
         headers={"X-Telegram-User-Id": "123"},
         json={"intent": "SURPRISE_ME", "count": 3},

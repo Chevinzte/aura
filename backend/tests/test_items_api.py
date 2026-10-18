@@ -15,6 +15,9 @@ from aura_backend.domain.models import (
 )
 from aura_backend.main import create_app
 
+INTERNAL_API_KEY = "test-internal-api-key-1234567890"
+AUTH_HEADERS = {"Authorization": f"Bearer {INTERNAL_API_KEY}"}
+
 
 def make_features() -> ItemVisualFeaturesV1:
     return ItemVisualFeaturesV1(
@@ -80,10 +83,10 @@ class FakeCandidateItemService:
 
 
 def test_create_owned_item_returns_completed_analysis() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_owned_item_service] = lambda: FakeOwnedItemService()
 
-    response = TestClient(app).post(
+    response = TestClient(app, headers=AUTH_HEADERS).post(
         "/v1/items/owned",
         headers={"X-Telegram-User-Id": "123"},
         files={"file": ("bag.png", b"image-bytes", "image/png")},
@@ -98,10 +101,10 @@ def test_create_owned_item_returns_completed_analysis() -> None:
 
 
 def test_create_owned_item_requires_telegram_identity() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_owned_item_service] = lambda: FakeOwnedItemService()
 
-    response = TestClient(app).post(
+    response = TestClient(app, headers=AUTH_HEADERS).post(
         "/v1/items/owned",
         files={"file": ("bag.png", b"image-bytes", "image/png")},
     )
@@ -110,10 +113,10 @@ def test_create_owned_item_requires_telegram_identity() -> None:
 
 
 def test_create_candidate_item_returns_match_result() -> None:
-    app = create_app()
+    app = create_app(internal_api_key=INTERNAL_API_KEY)
     app.dependency_overrides[get_candidate_item_service] = lambda: FakeCandidateItemService()
 
-    response = TestClient(app).post(
+    response = TestClient(app, headers=AUTH_HEADERS).post(
         "/v1/items/candidates",
         headers={"X-Telegram-User-Id": "123"},
         files={"file": ("candidate.png", b"image-bytes", "image/png")},

@@ -18,6 +18,10 @@ class BotSettings(BaseSettings):
         default="http://127.0.0.1:8000",
         validation_alias="AURA_BACKEND_URL",
     )
+    internal_api_key: str = Field(
+        validation_alias="AURA_INTERNAL_API_KEY",
+        min_length=32,
+    )
     backend_timeout_seconds: float = Field(
         default=120.0,
         validation_alias="AURA_BACKEND_TIMEOUT_SECONDS",

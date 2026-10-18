@@ -38,12 +38,13 @@ def owned_item_message(
         return (
             f"Item added: {item_name}. Your aesthetic profile is ready and now includes "
             f"{item_count or minimum_items} belongings.\n\n"
-            "Send another photo, use /done, or use /check to evaluate something new."
+            "Add mode is still active. Send another photo or album, or use /done."
         )
     if profile_status == "REBUILD_FAILED":
         return (
             f"Item added: {item_name}. Your profile could not be refreshed right now. "
-            "You can continue, and AURA will retry when another belonging is added."
+            "You can continue, and AURA will retry when another belonging is added.\n\n"
+            "Add mode is still active. Send another photo or album, or use /done."
         )
     progress = (
         f" Progress: {item_count}/{minimum_items} usable items."
@@ -53,7 +54,8 @@ def owned_item_message(
     return (
         f"Item added: {item_name}. Keep sending belongings you genuinely like; AURA "
         "needs at least "
-        f"five usable items to build your profile.{progress} Send another photo or use /done."
+        f"five usable items to build your profile.{progress}\n\n"
+        "Add mode is still active. Send another photo or album, or use /done."
     )
 
 
@@ -105,7 +107,8 @@ def help_message() -> str:
         "up to ten different items. Each clear, well-lit photo must show one primary "
         "item. Captions are optional; AURA uses the item name identified from the "
         "image when omitted.\n\n"
-        "/check — Compare a new item with your current style profile.\n\n"
+        "/check — Compare new items with your current style profile. Send one photo "
+        "or an album of up to ten different items, then use /done when finished.\n\n"
         "/profile — See what AURA has learned from your uploaded belongings.\n\n"
         "/wardrobe — Browse uploaded belongings ten per page with their stored photos. "
         "Use Edit Item Details to view current values, type corrections, and preview "
@@ -113,7 +116,7 @@ def help_message() -> str:
         "/settings — Choose whether generated clothing ideas should use menswear, "
         "womenswear, gender-neutral fashion, or no presentation preference.\n\n"
         "/resetprofile — Clear all uploaded belongings and restart your profile.\n\n"
-        "/done — Exit the current photo-upload mode."
+        "/done — Exit the current /add or /check photo mode."
     )
 
 
@@ -446,6 +449,27 @@ def candidate_message(payload: dict[str, Any]) -> str:
     return f"{classification}. Based on your uploaded belongings, this result is subjective guidance."
 
 
+def candidate_mode_reminder() -> str:
+    return "Check mode is still active. Send another photo or album, or use /done."
+
+
+def candidate_batch_message(
+    *,
+    successful_count: int,
+    failed_count: int,
+    skipped_count: int,
+) -> str:
+    processed_count = successful_count + failed_count
+    lines = ["Batch check complete.", f"Checked: {successful_count}/{processed_count}"]
+    if failed_count:
+        lines.append(f"Could not check: {failed_count}")
+    if skipped_count:
+        lines.append(
+            f"Skipped: {skipped_count} photo(s) beyond the ten-photo batch limit."
+        )
+    return "\n\n".join(lines)
+
+
 def taste_feedback_message() -> str:
     return (
         "Does this item suit your taste?\n\n"
@@ -573,6 +597,10 @@ def backend_error_message(code: str, reference_id: str | None = None) -> str:
         "UNSUPPORTED_IMAGE_TYPE": "Please send the image as a Telegram photo.",
         "INVALID_IMAGE": "That image could not be read safely. Please try another photo.",
         "BACKEND_UNAVAILABLE": "AURA is temporarily unavailable. Please try again shortly.",
+        "BACKEND_AUTHENTICATION_FAILED": (
+            "AURA's services could not authenticate with each other. Please contact "
+            "the administrator rather than retrying this command."
+        ),
         "ITEM_PROCESSING_UNAVAILABLE": "AURA could not process that item right now. Please retry.",
         "CANDIDATE_PROCESSING_UNAVAILABLE": (
             "AURA could not finish that comparison right now. Please retry."
@@ -634,6 +662,7 @@ def backend_error_message(code: str, reference_id: str | None = None) -> str:
     )
     reference_codes = {
         "BACKEND_UNAVAILABLE",
+        "BACKEND_AUTHENTICATION_FAILED",
         "ITEM_PROCESSING_UNAVAILABLE",
         "CANDIDATE_PROCESSING_UNAVAILABLE",
         "VISION_ANALYSIS_FAILED",

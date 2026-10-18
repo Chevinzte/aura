@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted design target for the PostgreSQL and Supabase MVP.
+Implemented persistence contract for the PostgreSQL and Supabase MVP.
 
 This document defines the persistence contract supporting the AI pipeline in
-`AI_PIPELINE.md`. The first SQL migration should implement this design without
-adding Supabase Auth or exposing Supabase directly to Telegram.
+`AI_PIPELINE.md`. The migrations in `supabase/migrations/` implement this design
+without adding Supabase Auth or exposing Supabase directly to Telegram.
 
 ## Goals
 

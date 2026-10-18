@@ -46,6 +46,7 @@ def build_application(settings: BotSettings) -> Application:
     """Build the Telegram frontend without importing backend business logic."""
     backend_client = AuraBackendClient(
         base_url=str(settings.backend_url),
+        internal_api_key=settings.internal_api_key,
         timeout_seconds=settings.backend_timeout_seconds,
     )
 
@@ -64,7 +65,7 @@ def build_application(settings: BotSettings) -> Application:
                     BotCommand("wardrobe", "Browse and correct your belongings"),
                     BotCommand("resetprofile", "Clear and restart your profile"),
                     BotCommand("help", "Show the AURA command guide"),
-                    BotCommand("done", "Exit photo-upload mode"),
+                    BotCommand("done", "Exit add or check mode"),
                 ]
             )
         except TelegramError:

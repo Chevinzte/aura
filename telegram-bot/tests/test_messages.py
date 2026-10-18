@@ -120,6 +120,16 @@ def test_pipeline_errors_have_specific_messages() -> None:
     assert backend_error_message("BACKEND_REQUEST_FAILED") != fallback
 
 
+def test_backend_authentication_error_gives_operator_guidance() -> None:
+    message = backend_error_message(
+        "BACKEND_AUTHENTICATION_FAILED",
+        "ABCDEF123456",
+    )
+
+    assert "contact the administrator" in message
+    assert "Reference: ABCDEF123456" in message
+
+
 def test_operational_errors_include_reference_but_input_errors_do_not() -> None:
     operational = backend_error_message("BACKEND_UNAVAILABLE", "ABCDEF123456")
     input_error = backend_error_message("IMAGE_UNUSABLE", "ABCDEF123456")

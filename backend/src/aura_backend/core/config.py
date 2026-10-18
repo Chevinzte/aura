@@ -16,6 +16,10 @@ class Settings(BaseSettings):
 
     supabase_url: AnyHttpUrl = Field(validation_alias="SUPABASE_URL")
     supabase_secret_key: str = Field(validation_alias="SUPABASE_SECRET_KEY")
+    internal_api_key: str = Field(
+        validation_alias="AURA_INTERNAL_API_KEY",
+        min_length=32,
+    )
     ai_base_url: AnyHttpUrl = Field(validation_alias="AURA_AI_BASE_URL")
     ai_api_key: str = Field(validation_alias="AURA_AI_API_KEY")
     ai_timeout_seconds: float = Field(

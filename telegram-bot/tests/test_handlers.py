@@ -154,6 +154,110 @@ def test_owned_album_groups_and_processes_each_photo(monkeypatch) -> None:
     run(scenario())
 
 
+def test_candidate_album_checks_each_photo_and_keeps_mode_active(monkeypatch) -> None:
+    import aura_telegram.handlers as handlers
+
+    monkeypatch.setattr(handlers, "OWNED_ALBUM_SETTLE_SECONDS", 0)
+    match_ids = [uuid4(), uuid4()]
+    request_count = 0
+
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        assert request.url.path == "/v1/items/candidates"
+        match_id = match_ids[request_count]
+        request_count += 1
+        return httpx.Response(
+            201,
+            json={
+                "match_id": str(match_id),
+                "features": {"itemName": f"Candidate {request_count}"},
+                "match": {"explanation": f"Classification: Result {request_count}"},
+            },
+        )
+
+    class FakeFile:
+        async def download_as_bytearray(self) -> bytearray:
+            return bytearray(b"jpeg")
+
+    class FakePhoto:
+        def __init__(self, photo_id: str) -> None:
+            self.file_unique_id = photo_id
+
+        async def get_file(self) -> FakeFile:
+            return FakeFile()
+
+    class FakeProgress:
+        def __init__(self) -> None:
+            self.edits: list[str] = []
+
+        async def edit_text(self, text: str, **_: object) -> None:
+            self.edits.append(text)
+
+    class FakeAlbumMessage:
+        def __init__(self, photo_id: str, progress: FakeProgress) -> None:
+            self.photo = [FakePhoto(photo_id)]
+            self.media_group_id = "candidate-album"
+            self.caption = None
+            self.progress = progress
+            self.replies: list[tuple[str, object]] = []
+
+        async def reply_text(self, text: str, **kwargs: object):
+            if text.startswith("Batch received"):
+                return self.progress
+            self.replies.append((text, kwargs.get("reply_markup")))
+            return None
+
+    class FakeApplication:
+        def __init__(self) -> None:
+            self.coroutines = []
+
+        def create_task(self, coroutine, **_: object) -> None:
+            self.coroutines.append(coroutine)
+
+    async def scenario() -> None:
+        client = AuraBackendClient(
+            base_url="http://backend.test",
+            timeout_seconds=10,
+            transport=httpx.MockTransport(backend_handler),
+        )
+        progress = FakeProgress()
+        application = FakeApplication()
+        context = SimpleNamespace(
+            user_data={"upload_mode": CANDIDATE_MODE},
+            bot_data={"backend_client": client},
+            application=application,
+        )
+        user = SimpleNamespace(id=123, full_name="Vinz")
+        messages = [FakeAlbumMessage(f"photo-{index}", progress) for index in (1, 2)]
+
+        for message in messages:
+            await handle_photo(
+                SimpleNamespace(effective_message=message, effective_user=user),
+                context,
+            )
+
+        application.coroutines[0].close()
+        await application.coroutines[1]
+        await client.close()
+
+        assert request_count == 2
+        assert progress.edits[:2] == [
+            "Checking batch item 1 of 2…",
+            "Checking batch item 2 of 2…",
+        ]
+        assert "Batch check complete." in progress.edits[-1]
+        assert "Checked: 2/2" in progress.edits[-1]
+        assert [reply[0] for reply in messages[0].replies].count(
+            "Check mode is still active. Send another photo or album, or use /done."
+        ) == 1
+        assert sum(
+            reply[0].startswith("Classification:") for reply in messages[0].replies
+        ) == 2
+        assert context.user_data["upload_mode"] == CANDIDATE_MODE
+
+    run(scenario())
+
+
 def test_candidate_check_asks_separate_taste_and_decision_questions() -> None:
     match_id = uuid4()
 
@@ -217,7 +321,7 @@ def test_candidate_check_asks_separate_taste_and_decision_questions() -> None:
     run(client.close())
 
     assert message.progress.edits == [("Classification: Moderate Fit", None)]
-    assert len(message.prompts) == 2
+    assert len(message.prompts) == 3
     taste_text, taste_markup = message.prompts[0]
     decision_text, decision_markup = message.prompts[1]
     assert taste_text.startswith("Does this item suit your taste?")
@@ -230,7 +334,11 @@ def test_candidate_check_asks_separate_taste_and_decision_questions() -> None:
         "🛍 Bought it",
         "🚫 Passed on it",
     ]
-    assert "upload_mode" not in context.user_data
+    assert message.prompts[2] == (
+        "Check mode is still active. Send another photo or album, or use /done.",
+        None,
+    )
+    assert context.user_data["upload_mode"] == CANDIDATE_MODE
 
 
 def test_feedback_replaces_answered_question_with_recorded_choice() -> None:
@@ -340,6 +448,7 @@ def test_request_suggestions_displays_intent_choices() -> None:
     assert keyboard[0][0].callback_data == "sug:SAFE_EXTENSION"
     assert keyboard[1][0].callback_data == "sug:INTENTIONAL_CONTRAST"
     assert keyboard[2][0].callback_data == "sug:SURPRISE_ME"
+    assert keyboard[3][0].callback_data == "sug:CANCEL"
 
 
 def test_request_suggestions_prompts_for_unconfigured_preference() -> None:
@@ -368,6 +477,7 @@ def test_request_suggestions_prompts_for_unconfigured_preference() -> None:
     assert "Before generating clothing ideas" in message.replies[0]
     assert keyboard[0][0].callback_data == "pref:MENSWEAR:suggestion"
     assert keyboard[1][1].callback_data == "pref:NO_PREFERENCE:suggestion"
+    assert keyboard[2][0].callback_data == "sug:CANCEL"
 
 
 def test_settings_updates_preference_and_can_continue_to_suggestions() -> None:
@@ -410,11 +520,20 @@ def test_settings_updates_preference_and_can_continue_to_suggestions() -> None:
             context,
         )
     )  # type: ignore[arg-type]
+    query.data = "pref:WOMENSWEAR:settings"
+    run(
+        handle_preference_action(
+            SimpleNamespace(callback_query=query),
+            context,
+        )
+    )  # type: ignore[arg-type]
     run(client.close())
 
     assert "Fashion preference: Womenswear" in message.replies[0]
     assert "Fashion preference: Menswear" in query.edits[0][0]
     assert query.edits[0][1].inline_keyboard[0][0].callback_data == "sug:SAFE_EXTENSION"
+    assert "Fashion preference saved: Womenswear" in query.edits[1][0]
+    assert query.edits[1][1] is None
 
 
 def test_suggestion_action_sends_images_and_offers_two_more() -> None:
@@ -540,6 +659,34 @@ def test_suggestion_finish_ends_session_and_removes_controls() -> None:
     ]
 
 
+def test_suggestion_cancel_ends_session_and_removes_controls() -> None:
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = "sug:CANCEL"
+            self.message = SimpleNamespace()
+            self.from_user = SimpleNamespace(id=123)
+            self.edits: list[tuple[str, object]] = []
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+        async def edit_message_text(self, text: str, **kwargs: object) -> None:
+            self.edits.append((text, kwargs.get("reply_markup")))
+
+    query = FakeQuery()
+    context = SimpleNamespace(user_data={"suggestion_state": {"intent": "SAFE_EXTENSION"}})
+
+    run(
+        handle_suggestion_action(
+            SimpleNamespace(callback_query=query),
+            context,
+        )
+    )  # type: ignore[arg-type]
+
+    assert "suggestion_state" not in context.user_data
+    assert query.edits == [("Suggestion cancelled.", None)]
+
+
 def test_wardrobe_lists_and_opens_stored_item_photo() -> None:
     item_id = "31a2b686-ffb6-4ab4-a7be-876540bca13a"
 
@@ -629,6 +776,58 @@ def test_wardrobe_lists_and_opens_stored_item_photo() -> None:
     assert message.photos == [b"jpeg"]
     assert message.photo_markups[0].inline_keyboard[0][0].callback_data == f"wde:{item_id}"
     assert message.photo_markups[0].inline_keyboard[0][0].text == "Edit Item Details"
+
+
+def test_back_to_wardrobe_deletes_selected_item_message() -> None:
+    async def backend_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/wardrobe"
+        return httpx.Response(
+            200,
+            json={
+                "items": [],
+                "page": 1,
+                "page_size": 10,
+                "has_previous": False,
+                "has_next": False,
+            },
+        )
+
+    class SelectedItemMessage:
+        def __init__(self) -> None:
+            self.deleted = False
+            self.replies: list[tuple[str, object]] = []
+
+        async def delete(self) -> None:
+            self.deleted = True
+
+        async def reply_text(self, text: str, **kwargs: object) -> None:
+            self.replies.append((text, kwargs.get("reply_markup")))
+
+    class FakeQuery:
+        def __init__(self) -> None:
+            self.data = "wdb"
+            self.message = SelectedItemMessage()
+            self.from_user = SimpleNamespace(id=123, first_name="Vinz", username="vinz")
+
+        async def answer(self, *_: object, **__: object) -> None:
+            return None
+
+    client = AuraBackendClient(
+        base_url="http://backend.test",
+        timeout_seconds=10,
+        transport=httpx.MockTransport(backend_handler),
+    )
+    query = FakeQuery()
+    context = SimpleNamespace(
+        user_data={"wardrobe_state": {"page": 1}},
+        bot_data={"backend_client": client},
+    )
+
+    run(handle_wardrobe_action(SimpleNamespace(callback_query=query), context))
+    run(client.close())
+
+    assert query.message.deleted is True
+    assert query.message.replies[0][0].startswith("Your wardrobe")
 
 
 def test_editing_shows_current_value_and_returns_to_field_menu() -> None:
@@ -910,6 +1109,9 @@ def test_guided_correction_requires_preview_then_confirmation() -> None:
 
     assert context.user_data["wardrobe_state"]["stage"] == "confirm"
     assert message.reply_markups[0].inline_keyboard[0][0].callback_data == "wcc:y"
+    assert message.reply_markups[0].inline_keyboard[1][0].text == "Back to Editable Fields"
+    assert message.reply_markups[0].inline_keyboard[1][0].callback_data == "wca"
+    assert message.reply_markups[0].inline_keyboard[1][1].callback_data == "wcc:n"
     assert "Current Value:</b> Blue shirt" in message.replies[-1]
     assert "New Value:</b> Travel shirt" in message.replies[-1]
 
